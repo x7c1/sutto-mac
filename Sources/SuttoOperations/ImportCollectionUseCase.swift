@@ -45,30 +45,27 @@ public enum LayoutImportError: Error, Equatable {
 /// empty-name rejection) → convert it to rows, minting ids and hashes →
 /// hand it to the repository, which mints the collection id and persists.
 ///
-/// One deliberate addition over GNOME: on success the imported collection
-/// is made *active*, so the panel shows it immediately. GNOME leaves
-/// selection to its preferences UI; the mac settings screen (selection and
-/// deletion) is the next PR, and until it lands importing is the only way
-/// to select a collection.
+/// Like the GNOME importer, importing only *adds* the collection — it does
+/// not select it. Making it active is an explicit step in the settings
+/// window, where the imported collection appears in the list. (v0.2's
+/// import PR provisionally auto-activated on import while no settings
+/// screen existed; that ended with the settings window.)
 @MainActor
 public final class ImportCollectionUseCase {
     private let repository: any SpaceCollectionRepository
-    private let preferences: any PreferencesRepository
     private let fileReader: any FileReading
     private let logger = Logger(subsystem: "io.github.x7c1.SuttoMac", category: "import")
 
     public init(
         repository: any SpaceCollectionRepository,
-        preferences: any PreferencesRepository,
         fileReader: any FileReading
     ) {
         self.repository = repository
-        self.preferences = preferences
         self.fileReader = fileReader
     }
 
     /// Imports the layout-configuration JSON at `url`. On success the new
-    /// collection is persisted and made active; on failure nothing is
+    /// collection is persisted (but not made active); on failure nothing is
     /// stored and the error says why.
     public func importCollection(at url: URL) -> Result<SpaceCollection, LayoutImportError> {
         let data: Data
@@ -103,7 +100,6 @@ public final class ImportCollectionUseCase {
 
         do {
             let collection = try repository.addCustomCollection(name: configuration.name, rows: rows)
-            preferences.setActiveCollectionId(collection.id)
             logger.info(
                 "imported \"\(collection.name, privacy: .public)\" as custom collection \(collection.id.description, privacy: .public)"
             )

@@ -6,12 +6,10 @@ import Testing
 
 @Suite @MainActor struct ImportCollectionUseCaseTests {
     private let repository = InMemorySpaceCollectionRepository()
-    private let preferences = InMemoryPreferencesRepository()
 
     private func makeUseCase(reader: StubFileReader) -> ImportCollectionUseCase {
         ImportCollectionUseCase(
             repository: repository,
-            preferences: preferences,
             fileReader: reader
         )
     }
@@ -52,15 +50,6 @@ import Testing
         let collection = try importJSON(validJSON).get()
 
         #expect(repository.collections == [collection])
-    }
-
-    /// Importing selects the new collection so the panel shows it right
-    /// away — a deliberate deviation from GNOME (which leaves selection to
-    /// its preferences UI) until the settings screen lands in the next PR.
-    @Test func makesTheImportedCollectionActive() throws {
-        let collection = try importJSON(validJSON).get()
-
-        #expect(preferences.storedActiveCollectionId == collection.id)
     }
 
     @Test func appendsToExistingCollections() throws {
@@ -139,7 +128,6 @@ import Testing
         _ = importJSON(validJSON)
 
         #expect(repository.collections.isEmpty)
-        #expect(preferences.storedActiveCollectionId == nil)
     }
 
     /// Unknown group references degrade to a partial import (log-and-skip),
@@ -177,7 +165,6 @@ import Testing
 
         #expect(collection.name == "Single Monitor Basic")
         #expect(repository.collections == [collection])
-        #expect(preferences.storedActiveCollectionId == collection.id)
 
         // The imported collection projects onto the panel as the sample's
         // two spaces: "half split" and "full".

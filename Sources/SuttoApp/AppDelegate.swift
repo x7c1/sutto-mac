@@ -70,7 +70,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let importController = LayoutImportController(
             importCollection: ImportCollectionUseCase(
                 repository: collections,
-                preferences: preferences,
                 fileReader: LocalFileReader()
             )
         )
