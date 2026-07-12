@@ -18,7 +18,7 @@ A window snapping app for macOS, bringing the [Sutto](https://github.com/x7c1/su
 | `swift build` | Build the SwiftPM package                                                            |
 | `make test`   | Run unit tests ([why not bare `swift test`](docs/guides/testing.md))                 |
 | `make app`    | Assemble `.build/Sutto.app`                                                          |
-| `make run`    | Build the bundle and launch it                                                       |
+| `make run`    | Build the bundle and (re)launch it, quitting any running instance                    |
 | `make clean`  | Remove the bundle and SwiftPM build artifacts                                        |
 
 The app lives in the menu bar (no Dock icon). During development the bundle is unsigned, so macOS treats every rebuilt binary as a new app: you have to grant (or re-grant) the Accessibility permission manually under System Settings › Privacy & Security › Accessibility. The onboarding window shown at first launch walks through this.

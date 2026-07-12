@@ -40,7 +40,7 @@ Follow this pattern for new log statements: `os.Logger` with the shared subsyste
 
 ## Gotchas
 
-- **`make run` does not restart a running instance.** It ends in `open`, which only activates an already-running Sutto instead of launching the rebuilt binary. Quit first (status menu → Quit Sutto, or `pkill -x Sutto`), then `make run`. The PID in the log lines tells you whether a new process actually started.
+- **`open` alone does not restart a running instance** — it only activates an already-running Sutto instead of launching a rebuilt binary. `make run` handles this for you by quitting any running instance before `open`. If you launch by other means, quit first (status menu → Quit Sutto, or `pkill -x Sutto`). The PID in the log lines tells you whether a new process actually started.
 - **stderr alternative:** running the bundled binary directly attaches it to your terminal, so anything written to stderr is visible without `log stream`:
 
   ```sh
