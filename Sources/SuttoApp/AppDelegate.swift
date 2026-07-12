@@ -1,4 +1,5 @@
 import AppKit
+import os
 import SuttoDomain
 import SuttoInfra
 import SuttoOperations
@@ -27,7 +28,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let panel = LayoutPanel(
             groups: BuiltInPresets.standardLayoutGroups,
             selection: LayoutSelectionUseCase { layout in
-                NSLog("Sutto: layout selected: %@", layout.label)
+                // .public: unified logging redacts dynamic strings as
+                // <private> in `log stream` by default, which would hide
+                // the selected layout from this dev-facing log.
+                Logger(subsystem: "io.github.x7c1.SuttoMac", category: "selection")
+                    .info("layout selected: \(layout.label, privacy: .public)")
             }
         )
         layoutPanel = panel
