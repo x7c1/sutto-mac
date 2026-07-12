@@ -68,4 +68,70 @@ import Testing
             #expect(repository.activeCollectionId() == id)
         }
     }
+
+    // MARK: - Panel toggle shortcut
+
+    @Test func startsWithNoStoredShortcut() throws {
+        try withRepository { repository, _ in
+            #expect(repository.panelToggleShortcut() == nil)
+        }
+    }
+
+    @Test func storedShortcutRoundTrips() throws {
+        try withRepository { repository, _ in
+            let combo = KeyCombo(keyCode: 40, modifiers: [.control, .command])
+
+            repository.setPanelToggleShortcut(combo)
+
+            #expect(repository.panelToggleShortcut() == combo)
+        }
+    }
+
+    @Test func settingNilClearsTheShortcut() throws {
+        try withRepository { repository, _ in
+            repository.setPanelToggleShortcut(KeyCombo(keyCode: 40, modifiers: [.command]))
+
+            repository.setPanelToggleShortcut(nil)
+
+            #expect(repository.panelToggleShortcut() == nil)
+        }
+    }
+
+    /// Pins the storage format: a dictionary of `keyCode` and `modifiers`
+    /// integers under `panelToggleShortcut`. A format change would silently
+    /// drop every user's captured shortcut, so it must fail a test.
+    @Test func persistsTheDocumentedDictionaryFormat() throws {
+        try withRepository { repository, defaults in
+            repository.setPanelToggleShortcut(
+                KeyCombo(keyCode: 40, modifiers: [.control, .command]))
+
+            let stored = defaults.dictionary(
+                forKey: UserDefaultsPreferencesRepository.panelToggleShortcutKey)
+            #expect(stored?["keyCode"] as? Int == 40)
+            #expect(stored?["modifiers"] as? Int == 0b1001)  // control | command
+        }
+    }
+
+    /// Same degradation as an invalid collection id: a hand-edited or
+    /// corrupt value falls back to "nothing stored" (the caller then uses
+    /// the default combo) instead of crashing. (One test over a local list
+    /// because `[String: Any]` is not Sendable, which `arguments:` needs.)
+    @Test func anInvalidStoredShortcutDegradesToNil() throws {
+        let invalidValues: [[String: Any]] = [
+            ["keyCode": "not-a-number", "modifiers": 9],  // wrong type
+            ["keyCode": 40],  // missing field
+            ["keyCode": 99_999, "modifiers": 9],  // keyCode out of UInt16
+            ["keyCode": 40, "modifiers": 4096],  // modifiers out of UInt8
+        ]
+        for stored in invalidValues {
+            try withRepository { repository, defaults in
+                defaults.set(
+                    stored, forKey: UserDefaultsPreferencesRepository.panelToggleShortcutKey)
+
+                #expect(
+                    repository.panelToggleShortcut() == nil,
+                    "expected nil for \(stored)")
+            }
+        }
+    }
 }

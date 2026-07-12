@@ -16,8 +16,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: StatusItemController?
     private var permissionOnboarding: PermissionOnboarding?
     private var layoutPanel: LayoutPanel?
-    private var layoutImport: LayoutImportController?
+    private var settingsWindow: SettingsWindowController?
     private var hotKeys: CarbonHotKeyRegistrar?
+    private var panelShortcut: PanelShortcutUseCase?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // LSUIElement in Info.plist already keeps the app out of the Dock;
@@ -67,22 +68,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hidePanel: { [weak panel] in panel?.hide() }
         )
 
-        let importController = LayoutImportController(
-            importCollection: ImportCollectionUseCase(
+        let settings = SettingsWindowController(
+            collections: CollectionSettingsUseCase(
                 repository: collections,
-                preferences: preferences,
-                fileReader: LocalFileReader()
-            )
+                preferences: preferences
+            ),
+            layoutImport: LayoutImportController(
+                importCollection: ImportCollectionUseCase(
+                    repository: collections,
+                    fileReader: LocalFileReader()
+                )
+            ),
+            shortcut: registerGlobalShortcut(with: togglePanel, preferences: preferences)
         )
-        layoutImport = importController
+        settingsWindow = settings
+
+        // ⌘, while the panel is open jumps to settings (GNOME behavior,
+        // with the mac-conventional combo).
+        panel.onOpenSettings = { settings.present() }
 
         statusItemController = StatusItemController(
             permission: permission,
             onTogglePanel: { togglePanel.toggle() },
-            onImportLayouts: { importController.present() }
+            onOpenSettings: { settings.present() }
         )
-
-        registerGlobalShortcut(with: togglePanel)
 
         if permission.shouldPresentOnboarding() {
             let onboarding = PermissionOnboarding(permission: permission)
@@ -91,23 +100,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Registers the global panel-toggle shortcut. The combo itself is the
-    /// hardcoded v0.1 default defined in `KeyCombo.defaultTogglePanel`; the
-    /// v0.2 settings screen makes it user-configurable.
-    private func registerGlobalShortcut(with togglePanel: PanelToggleUseCase) {
-        let logger = Logger(subsystem: "io.github.x7c1.SuttoMac", category: "shortcut")
+    /// Wires and registers the global panel-toggle shortcut: the captured
+    /// combo from preferences, or `KeyCombo.defaultTogglePanel` when none
+    /// was captured. The returned use case also serves the settings window,
+    /// which re-registers live on capture.
+    private func registerGlobalShortcut(
+        with togglePanel: PanelToggleUseCase,
+        preferences: any PreferencesRepository
+    ) -> PanelShortcutUseCase {
         let registrar = CarbonHotKeyRegistrar()
         hotKeys = registrar
+        let shortcut = PanelShortcutUseCase(
+            preferences: preferences,
+            registrar: registrar
+        ) { togglePanel.toggle() }
+        panelShortcut = shortcut
         do {
-            try registrar.register(.defaultTogglePanel) { togglePanel.toggle() }
-            let combo = KeyCombo.defaultTogglePanel.displayString
-            logger.info("global shortcut registered: \(combo, privacy: .public)")
+            try shortcut.registerCurrent()
         } catch {
             // Not fatal: the panel stays reachable through the status menu.
             // The usual cause is another app holding the same combo.
-            logger.error(
-                "global shortcut registration failed: \(String(describing: error), privacy: .public)"
-            )
+            Logger(subsystem: "io.github.x7c1.SuttoMac", category: "shortcut")
+                .error(
+                    "global shortcut registration failed: \(String(describing: error), privacy: .public)"
+                )
         }
+        return shortcut
     }
 }

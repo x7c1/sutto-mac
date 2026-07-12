@@ -26,6 +26,7 @@ final class InMemorySpaceCollectionRepository: SpaceCollectionRepository {
 @MainActor
 final class InMemoryPreferencesRepository: PreferencesRepository {
     var storedActiveCollectionId: CollectionId?
+    var storedPanelToggleShortcut: KeyCombo?
 
     func activeCollectionId() -> CollectionId? {
         storedActiveCollectionId
@@ -33,6 +34,14 @@ final class InMemoryPreferencesRepository: PreferencesRepository {
 
     func setActiveCollectionId(_ id: CollectionId?) {
         storedActiveCollectionId = id
+    }
+
+    func panelToggleShortcut() -> KeyCombo? {
+        storedPanelToggleShortcut
+    }
+
+    func setPanelToggleShortcut(_ combo: KeyCombo?) {
+        storedPanelToggleShortcut = combo
     }
 }
 

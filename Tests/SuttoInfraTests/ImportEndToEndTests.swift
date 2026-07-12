@@ -35,7 +35,6 @@ import Testing
         // Import through the same wiring the app composes in AppDelegate.
         let useCase = ImportCollectionUseCase(
             repository: FileSpaceCollectionRepository(directory: directory),
-            preferences: UserDefaultsPreferencesRepository(defaults: defaults),
             fileReader: LocalFileReader()
         )
         let imported = try useCase.importCollection(at: fixtureURL).get()
@@ -50,10 +49,25 @@ import Testing
             preferences: reopenedPreferences,
             presetGroups: BuiltInPresets.standardLayoutGroups
         )
-        let groups = activeGroups.activeLayoutGroups()
 
-        // The panel now shows the imported layouts, not the presets: the
-        // sample's two spaces project to "half split" and "full".
+        // Importing adds without activating (as in GNOME): the panel still
+        // shows the presets until the collection is selected in settings.
+        #expect(
+            activeGroups.activeLayoutGroups().map(\.name)
+                == BuiltInPresets.standardLayoutGroups.map(\.name))
+
+        // Selecting the imported collection in the settings list flips the
+        // panel to it: the sample's two spaces project to "half split" and
+        // "full".
+        let settings = CollectionSettingsUseCase(
+            repository: reopenedRepository,
+            preferences: reopenedPreferences
+        )
+        let importedEntry = try #require(
+            settings.entries().first { $0.kind == .custom(imported.id) })
+        settings.select(importedEntry)
+
+        let groups = activeGroups.activeLayoutGroups()
         #expect(groups.map(\.name) == ["half split", "full"])
         #expect(groups[0].layouts.map(\.label) == ["Left", "Right"])
         #expect(groups[1].layouts.map(\.label) == ["Full"])
