@@ -10,9 +10,7 @@ enum ExpectedFrame {
     /// The target frame in AX coordinates for `layout` applied to a window
     /// currently at `windowFrame` (AX coordinates).
     static func resolve(_ layout: Layout, windowFrame: PixelRect) throws -> PixelRect {
-        let screens = NSScreen.screens.map {
-            Screen(frame: pixelRect($0.frame), visibleFrame: pixelRect($0.visibleFrame))
-        }
+        let screens = currentScreens()
         let mouse = NSEvent.mouseLocation
         guard
             let frame = try PlacementFrameResolver.resolve(
@@ -31,9 +29,7 @@ enum ExpectedFrame {
     /// screen at `index` of `NSScreen.screens` — the explicit-screen rule
     /// behind cross-monitor placement (display key "N" names screen N).
     static func resolve(_ layout: Layout, onScreenAt index: Int) throws -> PixelRect {
-        let screens = NSScreen.screens.map {
-            Screen(frame: pixelRect($0.frame), visibleFrame: pixelRect($0.visibleFrame))
-        }
+        let screens = currentScreens()
         guard screens.indices.contains(index), let primary = screens.first else {
             throw E2EFailure("no screen at index \(index)")
         }
@@ -42,6 +38,26 @@ enum ExpectedFrame {
             on: screens[index],
             primary: primary
         )
+    }
+
+    /// The screens as the app under test sees them. A bare test-runner
+    /// process reports secondary screens' `visibleFrame` *without* their
+    /// menu bar (observed: a secondary's visible height came back 30 pt
+    /// too tall, so the cross-monitor expectation missed by exactly the
+    /// menu bar); `NSApplication.finishLaunching()` is what switches
+    /// AppKit to the fully-informed reporting a real app gets. `.prohibited`
+    /// keeps the runner invisible (no Dock icon, no activation).
+    private static var appKitLaunched = false
+
+    private static func currentScreens() -> [Screen] {
+        if !appKitLaunched {
+            appKitLaunched = true
+            NSApplication.shared.setActivationPolicy(.prohibited)
+            NSApplication.shared.finishLaunching()
+        }
+        return NSScreen.screens.map {
+            Screen(frame: pixelRect($0.frame), visibleFrame: pixelRect($0.visibleFrame))
+        }
     }
 
     private static func pixelRect(_ rect: NSRect) -> PixelRect {
