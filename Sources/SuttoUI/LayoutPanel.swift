@@ -20,6 +20,14 @@ import SuttoOperations
 /// navigation, and auto-hide arrive with the full panel in v0.3.
 @MainActor
 public final class LayoutPanel {
+    /// Called when the user presses the open-settings shortcut
+    /// (``SuttoDomain/KeyCombo/openSettings``, ⌘,) while the panel is
+    /// visible; the panel hides itself first. Mirrors the GNOME panel,
+    /// where a configurable shortcut (default Ctrl+,) opens preferences
+    /// from the open panel — ⌘, being the macOS settings convention is a
+    /// deliberate deviation.
+    public var onOpenSettings: (() -> Void)?
+
     private let groups: ActiveLayoutGroupsUseCase
     private let selection: LayoutSelectionUseCase
     private var panel: OverlayPanel?
@@ -92,6 +100,12 @@ public final class LayoutPanel {
         panel.onCancel = { [weak self] in
             self?.hide()
         }
+        panel.onOpenSettings = { [weak self] in
+            // The GNOME panel opens preferences and hides in the same
+            // gesture; keep that pairing.
+            self?.hide()
+            self?.onOpenSettings?()
+        }
         return panel
     }
 
@@ -160,11 +174,25 @@ public final class LayoutPanel {
 }
 
 /// A borderless panel that can become key (borderless windows cannot by
-/// default) and reports Escape via `onCancel`.
+/// default), reports Escape via `onCancel`, and reports the open-settings
+/// shortcut via `onOpenSettings`.
 private final class OverlayPanel: NSPanel {
     var onCancel: (() -> Void)?
+    var onOpenSettings: (() -> Void)?
 
     override var canBecomeKey: Bool { true }
+
+    /// ⌘-modified key-downs travel the key-equivalent path rather than
+    /// `keyDown`, and a borderless panel has no menu or views that would
+    /// claim them; intercepting in `sendEvent` catches the open-settings
+    /// combo regardless of which routing applies.
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, KeyComboTranslation.combo(from: event) == .openSettings {
+            onOpenSettings?()
+            return
+        }
+        super.sendEvent(event)
+    }
 
     /// Escape reaches the window as `cancelOperation(_:)` through the
     /// responder chain when no view handles it.

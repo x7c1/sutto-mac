@@ -3,15 +3,15 @@ import SuttoOperations
 import UniformTypeIdentifiers
 import os
 
-/// Presents the import flow triggered from the status menu: an open panel
-/// filtered to JSON files, the import use case, and an alert when the
+/// Presents the import flow triggered from the settings window: an open
+/// panel filtered to JSON files, the import use case, and an alert when the
 /// import fails. This is the app's first user-facing error surface, so the
 /// alert copy comes from ``SuttoOperations/LayoutImportError/userMessage``
 /// — short and specific about why the file was rejected.
 ///
-/// Success needs no dialog: the layout panel re-resolves the active
-/// collection on every show, so the imported layouts simply appear the next
-/// time it opens. A log line records what was imported (the use case emits
+/// Success needs no dialog: the settings collection list refreshes and the
+/// new collection appears there, ready to be selected — importing does not
+/// activate it. A log line records what was imported (the use case emits
 /// it).
 @MainActor
 public final class LayoutImportController {

@@ -8,16 +8,16 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     private let permission: AccessibilityPermissionUseCase
     private let permissionStatusMenuItem: NSMenuItem
     private let onTogglePanel: () -> Void
-    private let onImportLayouts: () -> Void
+    private let onOpenSettings: () -> Void
 
     public init(
         permission: AccessibilityPermissionUseCase,
         onTogglePanel: @escaping () -> Void,
-        onImportLayouts: @escaping () -> Void
+        onOpenSettings: @escaping () -> Void
     ) {
         self.permission = permission
         self.onTogglePanel = onTogglePanel
-        self.onImportLayouts = onImportLayouts
+        self.onOpenSettings = onOpenSettings
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         permissionStatusMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         super.init()
@@ -39,8 +39,8 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         onTogglePanel()
     }
 
-    @objc private func importLayouts() {
-        onImportLayouts()
+    @objc private func openSettings() {
+        onOpenSettings()
     }
 
     // MARK: - Private
@@ -77,15 +77,17 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         togglePanelItem.target = self
         menu.addItem(togglePanelItem)
 
-        // Imports a sutto-compatible layout JSON; the ellipsis follows the
-        // macOS convention for items that open a further dialog.
-        let importItem = NSMenuItem(
-            title: "Import Layouts…",
-            action: #selector(importLayouts),
-            keyEquivalent: ""
+        // Opens the settings window (collections and shortcuts; importing
+        // moved there, so settings is the single import path — as in the
+        // GNOME version, where import lives only in preferences). The ","
+        // key equivalent renders the conventional ⌘, next to the title.
+        let settingsItem = NSMenuItem(
+            title: "Settings…",
+            action: #selector(openSettings),
+            keyEquivalent: ","
         )
-        importItem.target = self
-        menu.addItem(importItem)
+        settingsItem.target = self
+        menu.addItem(settingsItem)
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(
