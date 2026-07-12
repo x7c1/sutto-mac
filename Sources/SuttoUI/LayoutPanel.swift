@@ -25,6 +25,11 @@ public final class LayoutPanel {
         self.selection = selection
     }
 
+    /// Whether the panel is currently on screen.
+    public var isVisible: Bool {
+        panel?.isVisible ?? false
+    }
+
     /// Shows the panel centered on the screen containing the mouse pointer
     /// (falling back to the main screen), and gives it key status so Escape
     /// works. Showing does not activate the app.
