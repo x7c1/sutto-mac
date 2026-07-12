@@ -149,6 +149,95 @@ struct SnapScenarioTests {
         }
     }
 
+    /// Keyboard operation end to end: open the panel with the shortcut,
+    /// walk the focus with arrow keys, and apply with Return — no mouse,
+    /// no AX press. The expectation is *predicted* by the same domain code
+    /// the app runs: the scenario rebuilds the panel model the app is
+    /// rendering (``ActivePanelModelReplica`` resolves the same collection
+    /// from the app's on-disk state), drives a
+    /// ``SuttoDomain/MiniaturePanelNavigator`` through the same key
+    /// sequence it injects (first arrow establishes focus top-left, second
+    /// moves right — or stays, on a panel with nothing to the right), and
+    /// asserts the window lands on the frame of whatever region that
+    /// simulation says Return applies, on the display the region's
+    /// miniature names.
+    @Test func snapsViaKeyboardNavigation() async throws {
+        try AccessibilityPreflight.requireTrusted()
+        try await SuttoUnderTest.terminateStrayInstances()
+        try await TargetWindowApp.terminateStrayInstances()
+
+        let sutto = try SuttoUnderTest.launch()
+        defer { sutto.terminate() }
+        let target = try TargetWindowApp.launch()
+        defer { target.terminate() }
+
+        try await target.waitUntilFrontmostWithFocusedWindow()
+
+        // Opens the panel and confirms it is on screen (a known region is
+        // reachable over AX); the panel is the key window from here on.
+        let leftHalf = try presetLayout(labeled: "Left Half")
+        _ = try await panelRegion(
+            labeled: leftHalf.label, inDisplay: Self.primaryDisplayLabel, of: sutto)
+
+        // Predict the outcome with the app's own domain math, on the
+        // collection the app actually resolved.
+        let screens = ExpectedFrame.currentScreens()
+        let navigator = MiniaturePanelNavigator(
+            model: try ActivePanelModelReplica.panelModel(screens: screens))
+        let established = try #require(
+            navigator.move(from: nil, direction: .right),
+            "the rendered panel has no focusable region")
+        let focused = navigator.move(from: established, direction: .right) ?? established
+        let selection = try #require(navigator.selection(at: focused))
+        let screenIndex = try #require(PanelDisplayKey.screenIndex(for: selection.displayKey))
+        let expected = try ExpectedFrame.resolve(selection.layout, onScreenAt: screenIndex)
+
+        let before = try await waitFor("the target window's frame") {
+            target.focusedWindowFrame()
+        }
+        try #require(
+            !before.isApproximately(expected, tolerance: Self.frameTolerance),
+            """
+            the target window already starts on the expected frame \
+            \(expected) — the scenario would pass without any movement
+            """)
+
+        // → establishes focus (top-left), → moves right, ↩ applies.
+        let rightArrow = KeyCombo(keyCode: 124, modifiers: [])
+        let returnKey = KeyCombo(keyCode: 36, modifiers: [])
+        try ShortcutInjector.post(rightArrow)
+        try ShortcutInjector.post(rightArrow)
+        try ShortcutInjector.post(returnKey)
+
+        do {
+            try await waitUntil("the target window to land on \(expected)") {
+                target.focusedWindowFrame()?
+                    .isApproximately(expected, tolerance: Self.frameTolerance) ?? false
+            }
+        } catch {
+            let actual = target.focusedWindowFrame().map(String.init(describing:))
+            throw E2EFailure(
+                """
+                the target window did not land on the keyboard-selected \
+                frame \(expected) (layout "\(selection.layout.label)" on \
+                display key \(selection.displayKey)); last observed frame: \
+                \(actual ?? "unreadable"). If it did not move at all, the \
+                key events may not have reached the panel — check Sutto's \
+                log: `log show --info --last 2m --predicate 'process == \
+                "Sutto" AND subsystem == "io.github.x7c1.SuttoMac"' \
+                --style compact`
+                """)
+        }
+
+        // Return applies through the click path, which also hides the
+        // panel; verify the loop closed.
+        try await waitUntil("the layout panel to hide after the selection") {
+            AXClient.windows(ofPID: sutto.pid).allSatisfy {
+                AXClient.button(titled: selection.layout.label, under: $0) == nil
+            }
+        }
+    }
+
     // MARK: - Steps
 
     /// Injects the global shortcut and waits for a layout region to become
