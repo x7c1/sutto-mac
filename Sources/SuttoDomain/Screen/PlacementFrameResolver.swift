@@ -49,7 +49,29 @@ public enum PlacementFrameResolver {
             primary: primary,
             mouseLocation: mouseLocation
         )
+        return try resolve(layout: layout, on: target, primary: primary)
+    }
 
+    /// Resolves the target frame for `layout` applied on an explicitly
+    /// chosen screen — the cross-monitor placement path: clicking a region
+    /// in display *N*'s miniature places the window on screen *N*, no
+    /// matter where the window currently is. The GNOME counterpart is
+    /// `LayoutApplicator.applyLayout` resolving against the work area of
+    /// the monitor named by the event's monitor key.
+    ///
+    /// - Parameters:
+    ///   - layout: The layout to resolve.
+    ///   - target: The screen to place on, in AppKit coordinates.
+    ///   - primary: The primary screen (the first of the provider's
+    ///     screens), anchoring the AppKit → AX conversion.
+    /// - Returns: The target window frame in AX coordinates.
+    /// - Throws: ``LayoutExpressionParseError`` if any of the layout's
+    ///   expressions is invalid.
+    public static func resolve(
+        layout: Layout,
+        on target: Screen,
+        primary: Screen
+    ) throws(LayoutExpressionParseError) -> PixelRect {
         let workArea = target.visibleFrame
         let relative = try LayoutFrameResolver.resolve(
             layout,
