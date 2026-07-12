@@ -1,5 +1,7 @@
 # Sutto for macOS
 
+[![CI](https://github.com/x7c1/sutto-mac/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/x7c1/sutto-mac/actions/workflows/ci.yml)
+
 > **UNDER DEVELOPMENT** - This app is currently in active development and not yet functional.
 
 A window snapping app for macOS, bringing the [Sutto](https://github.com/x7c1/sutto) experience to the Mac as a menu bar app.
