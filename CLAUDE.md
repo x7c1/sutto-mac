@@ -21,15 +21,19 @@ make clean    # remove the bundle and SwiftPM build artifacts
 
 ## Architecture
 
-Strict domain/infrastructure separation:
+Five SwiftPM targets, layered with dependencies pointing inward toward the domain (see [docs/guides/architecture.md](docs/guides/architecture.md) for the full picture):
 
-- `Sources/SuttoCore` — platform-independent domain logic. Must not import AppKit or any other macOS UI framework. All non-trivial logic belongs here and is heavily unit-tested.
-- `Sources/SuttoApp` — the AppKit shell: menu bar residency, windows, and OS integrations (Accessibility APIs, System Settings deep links). Kept as thin as possible; it maps OS state into SuttoCore types and acts on SuttoCore decisions.
-- `Tests/SuttoCoreTests` — Swift Testing (`import Testing`) unit tests for SuttoCore.
+- `SuttoDomain` — pure domain models and logic; no macOS framework imports.
+- `SuttoOperations` — use cases plus the protocols that infra implements.
+- `SuttoInfra` — concrete adapters over Apple frameworks (Accessibility APIs etc.).
+- `SuttoUI` — everything on screen (status item, windows, menus).
+- `SuttoApp` — executable composition root: wiring and app lifecycle only.
+
+The dependency rules are declared in `Package.swift`, so a forbidden import fails to compile. All non-trivial logic belongs in `SuttoDomain`/`SuttoOperations`, where it is unit-tested with Swift Testing (`Tests/SuttoDomainTests`, `Tests/SuttoOperationsTests`).
 
 ## Testing strategy
 
-- Unit tests cover SuttoCore and run everywhere, including CI.
+- Unit tests cover SuttoDomain and SuttoOperations and run everywhere, including CI.
 - End-to-end tests that actually move or resize windows require the Accessibility (TCC) permission, which cannot be granted in CI. They are local-only; CI runs unit tests exclusively.
 
 ## Conventions
