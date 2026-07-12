@@ -34,7 +34,7 @@ struct SnapScenarioTests {
         // the helper must be frontmost before the shortcut fires.
         try await target.waitUntilFrontmostWithFocusedWindow()
 
-        let leftHalf = try builtInLayout(labeled: "Left Half")
+        let leftHalf = try presetLayout(labeled: "Left Half")
         let button = try await panelButton(labeled: leftHalf.label, in: sutto)
 
         let before = try await waitFor("the target window's frame") {
@@ -113,13 +113,20 @@ struct SnapScenarioTests {
             """)
     }
 
-    private func builtInLayout(labeled label: String) throws -> Layout {
+    /// A layout from the generated presets, by label. The generator mints
+    /// fresh ids per call, but only the expressions matter here — the
+    /// expected frame is resolved from them. "Left Half" (vertical 2-split)
+    /// is part of both the standard and the wide preset flavor, so the
+    /// button exists no matter which preset the app resolves for the
+    /// machine's actual display.
+    private func presetLayout(labeled label: String) throws -> Layout {
+        let preset = PresetGenerator.generate(monitorCount: 1, monitorType: .standard)
         guard
-            let layout = BuiltInPresets.standardLayoutGroups
+            let layout = LayoutPanelProjection.layoutGroups(in: preset)
                 .flatMap(\.layouts)
                 .first(where: { $0.label == label })
         else {
-            throw E2EFailure("no built-in layout labeled \"\(label)\"")
+            throw E2EFailure("no preset layout labeled \"\(label)\"")
         }
         return layout
     }

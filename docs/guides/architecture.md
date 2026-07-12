@@ -96,5 +96,6 @@ These rules are encoded as target dependencies in `Package.swift`, so the compil
 
 - `Tests/SuttoDomainTests` covers the pure domain logic.
 - `Tests/SuttoOperationsTests` covers use cases, substituting the SuttoOperations protocols with in-test stubs — no AX APIs or AppKit involved.
+- `Tests/SuttoInfraTests` covers the Foundation-only infra adapters (file persistence, UserDefaults) against temp directories and isolated defaults suites; the AX-backed adapters are exercised by the e2e suite instead.
 - `Tests/SuttoE2ETests` drives the real app bundle from the outside (injected shortcut → panel → actual window movement). It depends on SuttoDomain only — shared constants and frame math — and observes the app through the Accessibility API like an external tool, never through SuttoInfra/SuttoUI internals.
 - Anything requiring the Accessibility (TCC) permission is local-only (`make e2e`, excluded from `make test`); see [testing.md](testing.md) for the testing strategy.

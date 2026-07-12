@@ -2,9 +2,16 @@ import Testing
 
 @testable import SuttoDomain
 
+/// The generated single-standard-monitor preset as the panel projects it —
+/// the group list the grid renders on a plain 16:9 setup.
+private var standardPresetGroups: [LayoutGroup] {
+    LayoutPanelProjection.layoutGroups(
+        in: PresetGenerator.generate(monitorCount: 1, monitorType: .standard))
+}
+
 @Suite struct LayoutPanelGridTests {
     @Test func buildsOneRowPerGroupInDeclarationOrder() {
-        let grid = LayoutPanelGrid(groups: BuiltInPresets.standardLayoutGroups)
+        let grid = LayoutPanelGrid(groups: standardPresetGroups)
 
         #expect(
             grid.rows.map(\.groupName) == [
@@ -16,7 +23,7 @@ import Testing
     }
 
     @Test func rowsKeepTheLayoutsOfTheirGroupInOrder() {
-        let grid = LayoutPanelGrid(groups: BuiltInPresets.standardLayoutGroups)
+        let grid = LayoutPanelGrid(groups: standardPresetGroups)
 
         #expect(
             grid.rows.map { $0.layouts.map(\.label) } == [
