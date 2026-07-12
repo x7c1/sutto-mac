@@ -1,4 +1,6 @@
 import AppKit
+import os
+import SuttoDomain
 import SuttoInfra
 import SuttoOperations
 import SuttoUI
@@ -13,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
     private var statusItemController: StatusItemController?
     private var permissionOnboarding: PermissionOnboarding?
+    private var layoutPanel: LayoutPanel?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // LSUIElement in Info.plist already keeps the app out of the Dock;
@@ -20,7 +23,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // development, where no Info.plist is present.
         NSApp.setActivationPolicy(.accessory)
 
-        statusItemController = StatusItemController(permission: permission)
+        // The selection handler only logs for now; the window-placement PR
+        // replaces it with one that snaps the frontmost window.
+        let panel = LayoutPanel(
+            groups: BuiltInPresets.standardLayoutGroups,
+            selection: LayoutSelectionUseCase { layout in
+                // .public: unified logging redacts dynamic strings as
+                // <private> in `log stream` by default, which would hide
+                // the selected layout from this dev-facing log.
+                Logger(subsystem: "io.github.x7c1.SuttoMac", category: "selection")
+                    .info("layout selected: \(layout.label, privacy: .public)")
+            }
+        )
+        layoutPanel = panel
+
+        statusItemController = StatusItemController(
+            permission: permission,
+            onShowPanel: { [weak panel] in panel?.show() }
+        )
 
         if permission.shouldPresentOnboarding() {
             let onboarding = PermissionOnboarding(permission: permission)

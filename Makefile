@@ -35,7 +35,13 @@ app: build
 	printf 'APPL????' > $(BUNDLE)/Contents/PkgInfo
 	plutil -lint $(BUNDLE)/Contents/Info.plist
 
+# Quit any running instance first: `open` only activates an already-running
+# app, so without this the freshly built binary would never launch.
 run: app
+	@if pgrep -xq $(APP_NAME); then \
+		pkill -x $(APP_NAME); \
+		while pgrep -xq $(APP_NAME); do sleep 0.1; done; \
+	fi
 	open $(BUNDLE)
 
 clean:
