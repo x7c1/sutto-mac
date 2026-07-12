@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: StatusItemController?
     private var permissionOnboarding: PermissionOnboarding?
     private var layoutPanel: LayoutPanel?
+    private var hotKeys: CarbonHotKeyRegistrar?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // LSUIElement in Info.plist already keeps the app out of the Dock;
@@ -37,15 +38,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         layoutPanel = panel
 
+        let togglePanel = PanelToggleUseCase(
+            isPanelVisible: { [weak panel] in panel?.isVisible ?? false },
+            showPanel: { [weak panel] in panel?.show() },
+            hidePanel: { [weak panel] in panel?.hide() }
+        )
+
         statusItemController = StatusItemController(
             permission: permission,
-            onShowPanel: { [weak panel] in panel?.show() }
+            onTogglePanel: { togglePanel.toggle() }
         )
+
+        registerGlobalShortcut(with: togglePanel)
 
         if permission.shouldPresentOnboarding() {
             let onboarding = PermissionOnboarding(permission: permission)
             permissionOnboarding = onboarding
             onboarding.present()
+        }
+    }
+
+    /// Registers the global panel-toggle shortcut. The combo itself is the
+    /// hardcoded v0.1 default defined in `KeyCombo.defaultTogglePanel`; the
+    /// v0.2 settings screen makes it user-configurable.
+    private func registerGlobalShortcut(with togglePanel: PanelToggleUseCase) {
+        let logger = Logger(subsystem: "io.github.x7c1.SuttoMac", category: "shortcut")
+        let registrar = CarbonHotKeyRegistrar()
+        hotKeys = registrar
+        do {
+            try registrar.register(.defaultTogglePanel) { togglePanel.toggle() }
+            let combo = KeyCombo.defaultTogglePanel.displayString
+            logger.info("global shortcut registered: \(combo, privacy: .public)")
+        } catch {
+            // Not fatal: the panel stays reachable through the status menu.
+            // The usual cause is another app holding the same combo.
+            logger.error(
+                "global shortcut registration failed: \(String(describing: error), privacy: .public)"
+            )
         }
     }
 }

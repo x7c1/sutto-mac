@@ -7,14 +7,14 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let permission: AccessibilityPermissionUseCase
     private let permissionStatusMenuItem: NSMenuItem
-    private let onShowPanel: () -> Void
+    private let onTogglePanel: () -> Void
 
     public init(
         permission: AccessibilityPermissionUseCase,
-        onShowPanel: @escaping () -> Void
+        onTogglePanel: @escaping () -> Void
     ) {
         self.permission = permission
-        self.onShowPanel = onShowPanel
+        self.onTogglePanel = onTogglePanel
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         permissionStatusMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         super.init()
@@ -32,8 +32,8 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 
     // MARK: - Actions
 
-    @objc private func showPanel() {
-        onShowPanel()
+    @objc private func togglePanel() {
+        onTogglePanel()
     }
 
     // MARK: - Private
@@ -60,15 +60,15 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(permissionStatusMenuItem)
         menu.addItem(.separator())
 
-        // Temporary trigger for the layout panel until the global-shortcut
-        // work lands; the shortcut PR replaces or augments this item.
-        let showPanelItem = NSMenuItem(
-            title: "Show Panel",
-            action: #selector(showPanel),
+        // Discoverable alternative to the global shortcut, sharing its
+        // toggle behavior so the two triggers stay consistent.
+        let togglePanelItem = NSMenuItem(
+            title: "Toggle Panel",
+            action: #selector(togglePanel),
             keyEquivalent: ""
         )
-        showPanelItem.target = self
-        menu.addItem(showPanelItem)
+        togglePanelItem.target = self
+        menu.addItem(togglePanelItem)
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(
