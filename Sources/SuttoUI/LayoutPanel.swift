@@ -2,26 +2,31 @@ import AppKit
 import SuttoDomain
 import SuttoOperations
 
-/// The v0.1 layout panel: a borderless, non-activating overlay showing the
-/// preset layouts as a flat grid of buttons — one row per layout group, one
-/// button per layout.
+/// The layout panel: a borderless, non-activating overlay showing the
+/// active collection's layouts as a flat grid of buttons — one row per
+/// layout group, one button per layout.
 ///
 /// The window is an `NSPanel` with `.nonactivatingPanel` so that showing it
 /// does not activate Sutto: the frontmost app stays active, which matters
-/// because the window-placement PR will snap *that* app's window. The panel
-/// still becomes the key window (without activating us) so it can receive
-/// Escape.
+/// because window placement snaps *that* app's window. The panel still
+/// becomes the key window (without activating us) so it can receive Escape.
 ///
-/// Deliberately minimal for v0.1. Miniature space previews, keyboard
+/// The groups are re-resolved through ``SuttoOperations/ActiveLayoutGroupsUseCase``
+/// on every ``show()``, so a fresh import is reflected the next time the
+/// panel opens — the GNOME panel reloads the active collection on show the
+/// same way.
+///
+/// Deliberately minimal for v0.2. Miniature space previews, keyboard
 /// navigation, and auto-hide arrive with the full panel in v0.3.
 @MainActor
 public final class LayoutPanel {
-    private let grid: LayoutPanelGrid
+    private let groups: ActiveLayoutGroupsUseCase
     private let selection: LayoutSelectionUseCase
     private var panel: OverlayPanel?
+    private var renderedGrid: LayoutPanelGrid?
 
-    public init(groups: [LayoutGroup], selection: LayoutSelectionUseCase) {
-        grid = LayoutPanelGrid(groups: groups)
+    public init(groups: ActiveLayoutGroupsUseCase, selection: LayoutSelectionUseCase) {
+        self.groups = groups
         self.selection = selection
     }
 
@@ -36,6 +41,7 @@ public final class LayoutPanel {
     public func show() {
         let panel = self.panel ?? makePanel()
         self.panel = panel
+        renderContentIfNeeded(in: panel)
 
         if let screen = screenWithMouse() {
             let visible = screen.visibleFrame
@@ -86,15 +92,24 @@ public final class LayoutPanel {
         panel.onCancel = { [weak self] in
             self?.hide()
         }
-
-        let stack = makeButtonGrid()
-        let background = makeBackground(containing: stack)
-        panel.contentView = background
-        panel.setContentSize(stack.fittingSize)
         return panel
     }
 
-    private func makeButtonGrid() -> NSStackView {
+    /// Rebuilds the button grid from the currently active layout groups,
+    /// skipping the rebuild when they match what is already rendered (the
+    /// common case of reopening the panel with nothing imported meanwhile).
+    private func renderContentIfNeeded(in panel: OverlayPanel) {
+        let grid = LayoutPanelGrid(groups: groups.activeLayoutGroups())
+        guard grid != renderedGrid else { return }
+        renderedGrid = grid
+
+        let stack = makeButtonGrid(from: grid)
+        let background = makeBackground(containing: stack)
+        panel.contentView = background
+        panel.setContentSize(stack.fittingSize)
+    }
+
+    private func makeButtonGrid(from grid: LayoutPanelGrid) -> NSStackView {
         let rowViews = grid.rows.map { row -> NSView in
             let buttons = row.layouts.map { layout in
                 LayoutButton(

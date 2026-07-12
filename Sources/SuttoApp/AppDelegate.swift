@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: StatusItemController?
     private var permissionOnboarding: PermissionOnboarding?
     private var layoutPanel: LayoutPanel?
+    private var layoutImport: LayoutImportController?
     private var hotKeys: CarbonHotKeyRegistrar?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -33,8 +34,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             windows: AXWindowController(),
             screens: SystemScreenProvider()
         )
+        // Collections persist under Application Support, the active
+        // selection under UserDefaults — the same file/GSettings split the
+        // GNOME version uses. With nothing imported, the panel falls back
+        // to the built-in presets.
+        let collections = FileSpaceCollectionRepository(
+            directory: FileSpaceCollectionRepository.defaultDirectory()
+        )
+        let preferences = UserDefaultsPreferencesRepository()
+        let activeGroups = ActiveLayoutGroupsUseCase(
+            repository: collections,
+            preferences: preferences,
+            presetGroups: BuiltInPresets.standardLayoutGroups
+        )
+
         let panel = LayoutPanel(
-            groups: BuiltInPresets.standardLayoutGroups,
+            groups: activeGroups,
             selection: LayoutSelectionUseCase { layout in
                 // .public: unified logging redacts dynamic strings as
                 // <private> in `log stream` by default, which would hide
@@ -52,9 +67,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hidePanel: { [weak panel] in panel?.hide() }
         )
 
+        let importController = LayoutImportController(
+            importCollection: ImportCollectionUseCase(
+                repository: collections,
+                preferences: preferences,
+                fileReader: LocalFileReader()
+            )
+        )
+        layoutImport = importController
+
         statusItemController = StatusItemController(
             permission: permission,
-            onTogglePanel: { togglePanel.toggle() }
+            onTogglePanel: { togglePanel.toggle() },
+            onImportLayouts: { importController.present() }
         )
 
         registerGlobalShortcut(with: togglePanel)
