@@ -4,31 +4,36 @@ import Testing
 @testable import SuttoOperations
 
 @Suite @MainActor struct LayoutSelectionUseCaseTests {
-    private func makeLayout(label: String) -> Layout {
-        Layout(
-            label: label,
-            position: LayoutPosition(x: "0", y: "0"),
-            size: LayoutSize(width: "50%", height: "100%")
+    private func makeEvent(label: String, displayKey: String = "0") -> LayoutSelectedEvent {
+        LayoutSelectedEvent(
+            layout: Layout(
+                label: label,
+                position: LayoutPosition(x: "0", y: "0"),
+                size: LayoutSize(width: "50%", height: "100%")
+            ),
+            displayKey: displayKey
         )
     }
 
-    @Test func forwardsTheSelectedLayoutToTheHandler() {
-        var received: [Layout] = []
+    @Test func forwardsTheSelectedEventToTheHandler() {
+        var received: [LayoutSelectedEvent] = []
         let useCase = LayoutSelectionUseCase { received.append($0) }
-        let layout = makeLayout(label: "Left Half")
+        let event = makeEvent(label: "Left Half", displayKey: "1")
 
-        useCase.select(layout)
+        useCase.select(event)
 
-        #expect(received == [layout])
+        #expect(received == [event])
+        #expect(received.first?.displayKey == "1")
     }
 
     @Test func forwardsEverySelectionInOrder() {
-        var received: [Layout] = []
+        var received: [LayoutSelectedEvent] = []
         let useCase = LayoutSelectionUseCase { received.append($0) }
 
-        useCase.select(makeLayout(label: "Left Half"))
-        useCase.select(makeLayout(label: "Right Half"))
+        useCase.select(makeEvent(label: "Left Half"))
+        useCase.select(makeEvent(label: "Right Half", displayKey: "1"))
 
-        #expect(received.map(\.label) == ["Left Half", "Right Half"])
+        #expect(received.map(\.layout.label) == ["Left Half", "Right Half"])
+        #expect(received.map(\.displayKey) == ["0", "1"])
     }
 }

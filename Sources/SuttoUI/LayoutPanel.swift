@@ -3,21 +3,25 @@ import SuttoDomain
 import SuttoOperations
 
 /// The layout panel: a borderless, non-activating overlay showing the
-/// active collection's layouts as a flat grid of buttons — one row per
-/// layout group, one button per layout.
+/// active collection as miniature space previews — one miniature per
+/// enabled space, each rendering *all* displays in their physical
+/// arrangement, with the assigned layouts drawn as clickable regions.
+/// Clicking a region places the frontmost window on that region's display
+/// with that layout.
 ///
 /// The window is an `NSPanel` with `.nonactivatingPanel` so that showing it
 /// does not activate Sutto: the frontmost app stays active, which matters
 /// because window placement snaps *that* app's window. The panel still
 /// becomes the key window (without activating us) so it can receive Escape.
 ///
-/// The groups are re-resolved through ``SuttoOperations/ActiveLayoutGroupsUseCase``
-/// on every ``show()``, so a fresh import is reflected the next time the
-/// panel opens — the GNOME panel reloads the active collection on show the
-/// same way.
+/// The model is re-resolved through
+/// ``SuttoOperations/ActivePanelModelUseCase`` on every ``show()``, so a
+/// fresh import or a display change is reflected the next time the panel
+/// opens — the GNOME panel reloads the active collection on show the same
+/// way.
 ///
-/// Deliberately minimal for v0.2. Miniature space previews, keyboard
-/// navigation, and auto-hide arrive with the full panel in v0.3.
+/// Keyboard navigation, auto-hide, and space toggling arrive later within
+/// v0.3.
 @MainActor
 public final class LayoutPanel {
     /// Called when the user presses the open-settings shortcut
@@ -28,13 +32,13 @@ public final class LayoutPanel {
     /// deliberate deviation.
     public var onOpenSettings: (() -> Void)?
 
-    private let groups: ActiveLayoutGroupsUseCase
+    private let model: ActivePanelModelUseCase
     private let selection: LayoutSelectionUseCase
     private var panel: OverlayPanel?
-    private var renderedGrid: LayoutPanelGrid?
+    private var renderedModel: MiniaturePanelModel?
 
-    public init(groups: ActiveLayoutGroupsUseCase, selection: LayoutSelectionUseCase) {
-        self.groups = groups
+    public init(model: ActivePanelModelUseCase, selection: LayoutSelectionUseCase) {
+        self.model = model
         self.selection = selection
     }
 
@@ -74,14 +78,6 @@ public final class LayoutPanel {
         panel?.orderOut(nil)
     }
 
-    // MARK: - Actions
-
-    @objc private func layoutButtonClicked(_ sender: NSButton) {
-        guard let button = sender as? LayoutButton else { return }
-        selection.select(button.layout)
-        hide()
-    }
-
     // MARK: - Panel construction
 
     private func makePanel() -> OverlayPanel {
@@ -109,41 +105,61 @@ public final class LayoutPanel {
         return panel
     }
 
-    /// Rebuilds the button grid from the currently active layout groups,
-    /// skipping the rebuild when they match what is already rendered (the
-    /// common case of reopening the panel with nothing imported meanwhile).
+    /// Rebuilds the miniature previews from the current panel model,
+    /// skipping the rebuild when it matches what is already rendered (the
+    /// common case of reopening the panel with nothing changed meanwhile).
     private func renderContentIfNeeded(in panel: OverlayPanel) {
-        let grid = LayoutPanelGrid(groups: groups.activeLayoutGroups())
-        guard grid != renderedGrid else { return }
-        renderedGrid = grid
+        let model = self.model.panelModel()
+        guard model != renderedModel else { return }
+        renderedModel = model
 
-        let stack = makeButtonGrid(from: grid)
-        let background = makeBackground(containing: stack)
+        let content = makeContent(from: model)
+        let background = makeBackground(containing: content)
         panel.contentView = background
-        panel.setContentSize(stack.fittingSize)
+        panel.setContentSize(content.fittingSize)
     }
 
-    private func makeButtonGrid(from grid: LayoutPanelGrid) -> NSStackView {
-        let rowViews = grid.rows.map { row -> NSView in
-            let buttons = row.layouts.map { layout in
-                LayoutButton(
-                    layout: layout,
-                    target: self,
-                    action: #selector(layoutButtonClicked(_:))
+    private func makeContent(from model: MiniaturePanelModel) -> NSStackView {
+        let onRegionClicked: (LayoutSelectedEvent) -> Void = { [weak self] event in
+            self?.selection.select(event)
+            self?.hide()
+        }
+
+        // Space numbering is continuous across rows (reading order), so
+        // the AX labels identify spaces the way a user counts them.
+        var spaceIndex = 0
+        let rowViews = model.rows.map { row -> NSView in
+            let miniatures = row.spaces.map { space -> NSView in
+                let view = MiniatureSpaceView(
+                    space: space,
+                    index: spaceIndex,
+                    onRegionClicked: onRegionClicked
                 )
+                spaceIndex += 1
+                return view
             }
-            let rowStack = NSStackView(views: buttons)
+            let rowStack = NSStackView(views: miniatures)
             rowStack.orientation = .horizontal
-            rowStack.spacing = 8
+            rowStack.alignment = .top
+            rowStack.spacing = 6
             return rowStack
         }
 
-        let stack = NSStackView(views: rowViews)
+        let stack = NSStackView(views: rowViews.isEmpty ? [makeEmptyLabel()] : rowViews)
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 10
         stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         return stack
+    }
+
+    /// Shown when every space is disabled (or nothing resolves at all),
+    /// matching the GNOME panel's "No spaces available" message.
+    private func makeEmptyLabel() -> NSTextField {
+        let label = NSTextField(labelWithString: "No spaces available")
+        label.font = .systemFont(ofSize: 13)
+        label.textColor = .secondaryLabelColor
+        return label
     }
 
     private func makeBackground(containing stack: NSStackView) -> NSVisualEffectView {
@@ -210,26 +226,5 @@ private final class OverlayPanel: NSPanel {
             return
         }
         super.keyDown(with: event)
-    }
-}
-
-/// A layout button that remembers which layout it stands for, so the click
-/// handler does not need to reverse-map from view identity to model.
-private final class LayoutButton: NSButton {
-    let layout: Layout
-
-    init(layout: Layout, target: AnyObject, action: Selector) {
-        self.layout = layout
-        super.init(frame: .zero)
-        title = layout.label
-        bezelStyle = .rounded
-        setButtonType(.momentaryPushIn)
-        self.target = target
-        self.action = action
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("LayoutButton does not support NSCoder")
     }
 }

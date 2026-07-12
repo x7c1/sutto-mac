@@ -56,21 +56,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         presetGenerator.ensurePresetsForCurrentMonitors()
 
-        let activeGroups = ActiveLayoutGroupsUseCase(
+        let panelModel = ActivePanelModelUseCase(
             repository: collections,
             preferences: preferences,
             screens: screens
         )
 
         let panel = LayoutPanel(
-            groups: activeGroups,
-            selection: LayoutSelectionUseCase { layout in
+            model: panelModel,
+            selection: LayoutSelectionUseCase { event in
                 // .public: unified logging redacts dynamic strings as
                 // <private> in `log stream` by default, which would hide
                 // the selected layout from this dev-facing log.
                 Logger(subsystem: "io.github.x7c1.SuttoMac", category: "selection")
-                    .info("layout selected: \(layout.label, privacy: .public)")
-                placement.place(layout)
+                    .info(
+                        """
+                        layout selected: \(event.layout.label, privacy: .public) \
+                        on display \(event.displayKey, privacy: .public)
+                        """)
+                placement.place(event.layout, onDisplayKey: event.displayKey)
             }
         )
         layoutPanel = panel

@@ -32,7 +32,7 @@ public struct CollectionSettingsEntry: Equatable, Sendable {
 /// earlier arrangement stay selectable) above a Custom section, with a
 /// radio per collection and deletion offered only on customs.
 ///
-/// Active resolution matches the panel's (`ActiveLayoutGroupsUseCase` in
+/// Active resolution matches the panel's (`ActivePanelModelUseCase` in
 /// the operations layer): the stored id when it names a listed collection —
 /// preset or custom — otherwise the default preset the caller resolved via
 /// ``PresetSelection``, so the row marked active here is always the
