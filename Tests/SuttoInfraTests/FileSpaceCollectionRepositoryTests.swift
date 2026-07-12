@@ -119,6 +119,46 @@ import Testing
         }
     }
 
+    /// Presets round-trip through their own document, named like the GNOME
+    /// preset file.
+    @Test func savedPresetCollectionsRoundTrip() throws {
+        try withRepository { repository, directory in
+            let presets = [PresetGenerator.generate(monitorCount: 1, monitorType: .standard)]
+
+            try repository.savePresetCollections(presets)
+
+            #expect(repository.loadPresetCollections() == presets)
+            let file = directory.appendingPathComponent(
+                FileSpaceCollectionRepository.presetCollectionsFileName)
+            #expect(FileManager.default.fileExists(atPath: file.path))
+        }
+    }
+
+    /// First run: no preset file yet — an empty list, not an error.
+    @Test func loadingPresetsWithoutAFileYieldsNothing() throws {
+        try withRepository { repository, _ in
+            #expect(repository.loadPresetCollections().isEmpty)
+        }
+    }
+
+    /// Presets and customs are separate documents: writing one never
+    /// touches the other (the GNOME preset/custom file pair).
+    @Test func presetAndCustomStorageAreIndependent() throws {
+        try withRepository { repository, _ in
+            let presets = [PresetGenerator.generate(monitorCount: 1, monitorType: .wide)]
+            let customs = [makeCollection(name: "Imported")]
+
+            try repository.savePresetCollections(presets)
+            try repository.saveCustomCollections(customs)
+
+            #expect(repository.loadPresetCollections() == presets)
+            #expect(repository.loadCustomCollections() == customs)
+
+            try repository.saveCustomCollections([])
+            #expect(repository.loadPresetCollections() == presets)
+        }
+    }
+
     /// The storage document is the GNOME storage format: a JSON *array* of
     /// collections, each in the `RawSpaceCollection` shape.
     @Test func storesAJSONArrayOfCollections() throws {
