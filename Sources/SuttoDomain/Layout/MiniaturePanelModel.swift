@@ -123,6 +123,23 @@ public struct MiniaturePanelModel: Equatable, Sendable {
         /// Fallback display size when no screen is attached
         /// (`DEFAULT_MONITOR_WIDTH`/`HEIGHT` in the GNOME domain).
         public static let fallbackDisplaySize = (width: 1920.0, height: 1080.0)
+
+        /// Horizontal gap between the space miniatures of a row. Shared by
+        /// the panel's row stacks and ``MiniaturePanelNavigator``, which
+        /// reconstructs whole-panel region frames from it — the two must
+        /// agree or keyboard focus would navigate a different geometry than
+        /// the one drawn.
+        public static let spaceSpacing: Double = 6
+
+        /// Vertical gap between rows. Shared with the navigator like
+        /// ``spaceSpacing``.
+        public static let rowSpacing: Double = 10
+
+        /// Padding between the panel edge and the miniatures. A uniform
+        /// translation of everything, so the navigator's relative geometry
+        /// is unaffected; kept here so the panel's metrics live in one
+        /// place.
+        public static let contentInset: Double = 16
     }
 
     /// Builds the model for `collection` on the given screens.
