@@ -3,10 +3,11 @@
 ## Overview
 
 Sutto for macOS keeps its test suite in two tiers. Unit tests cover the
-`SuttoDomain` and `SuttoOperations` targets and run everywhere, including CI.
-End-to-end tests that actually move or resize real windows require the
-Accessibility (TCC) permission, which cannot be granted in CI, so they are
-local-only; CI runs unit tests exclusively.
+`SuttoDomain`, `SuttoOperations`, and Foundation-only parts of the
+`SuttoInfra` targets and run everywhere, including CI. End-to-end tests that
+actually move or resize real windows require the Accessibility (TCC)
+permission, which cannot be granted in CI, so they are local-only; CI runs
+unit tests exclusively.
 
 ## Running tests: why `make test` instead of `swift test`
 
@@ -28,6 +29,12 @@ normally implements) with small in-test stubs — for example, a
 `PermissionChecking` stub with a scriptable status stands in for the AX-backed
 checker. No Accessibility APIs or AppKit are involved, which is what lets
 these tests run unprivileged in CI.
+
+`Tests/SuttoInfraTests` covers the infra adapters that only need Foundation:
+the file-backed collection repository runs against a per-test temp directory
+(never the real Application Support) and the preferences repository against
+an isolated `UserDefaults` suite. The AX-backed adapters have no unit tests —
+they are exercised end to end by the e2e suite instead.
 
 ## End-to-end tests
 

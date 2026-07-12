@@ -58,6 +58,16 @@ let package = Package(
             dependencies: ["SuttoOperations", "SuttoDomain"]
         ),
 
+        // Covers the Foundation-only infra adapters (file persistence,
+        // UserDefaults) against temp directories and isolated defaults
+        // suites -- no Accessibility APIs involved, so these run in CI like
+        // the other unit tests. The AX-backed adapters are exercised by the
+        // e2e suite instead.
+        .testTarget(
+            name: "SuttoInfraTests",
+            dependencies: ["SuttoInfra", "SuttoOperations", "SuttoDomain"]
+        ),
+
         // Local-only end-to-end suite: launches the real Sutto.app bundle and
         // drives it from the outside (event injection + Accessibility API).
         // Needs the TCC Accessibility permission, so `make test` skips it and
