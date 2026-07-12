@@ -81,7 +81,8 @@ it.)
 
 ### Local-only by design
 
-CI runs `make test` and must never execute the e2e suite: granting a TCC
+CI (GitHub Actions, [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml))
+runs `make test` and must never execute the e2e suite: granting a TCC
 permission requires an interactive, trusted UI session that CI runners do not
 have. That criterion is unchanged by the harness existing — the e2e suite is
 promoted to CI only if that constraint ever falls (for example, a supported
