@@ -12,6 +12,7 @@ enum MiniaturePalette {
     static let regionBackgroundHovered = NSColor.white.withAlphaComponent(0.30)
     static let regionBorder = NSColor.white.withAlphaComponent(0.30)
     static let regionBorderHovered = NSColor.white.withAlphaComponent(0.60)
+    static let regionBorderFocused = NSColor.white.withAlphaComponent(0.90)
     static let regionLabel = NSColor.white.withAlphaComponent(0.90)
     static let menuBarStrip = NSColor(white: 0.8, alpha: 0.9)
     static let displayNumber = NSColor.white.withAlphaComponent(0.90)
@@ -30,6 +31,10 @@ enum MiniaturePalette {
 /// directly, and it is sized by Auto Layout constraints to exactly the
 /// model's dimensions — the children are positioned with plain frames.
 final class MiniatureSpaceView: NSView {
+    /// The display miniatures, in the model's display order — the panel
+    /// walks these to map keyboard-focus coordinates onto region buttons.
+    let displayViews: [MiniatureDisplayView]
+
     /// - Parameters:
     ///   - space: The space miniature to render.
     ///   - index: Zero-based position of the space in reading order, used
@@ -41,6 +46,14 @@ final class MiniatureSpaceView: NSView {
         index: Int,
         onRegionClicked: @escaping (LayoutSelectedEvent) -> Void
     ) {
+        let showsDisplayNumbers = space.displays.count > 1
+        self.displayViews = space.displays.map { display in
+            MiniatureDisplayView(
+                display: display,
+                showsDisplayNumber: showsDisplayNumbers,
+                onRegionClicked: onRegionClicked
+            )
+        }
         super.init(frame: NSRect(x: 0, y: 0, width: space.width, height: space.height))
         wantsLayer = true
         layer?.backgroundColor = MiniaturePalette.spaceBackground.cgColor
@@ -52,14 +65,8 @@ final class MiniatureSpaceView: NSView {
             heightAnchor.constraint(equalToConstant: space.height),
         ])
 
-        let showsDisplayNumbers = space.displays.count > 1
-        for display in space.displays {
-            addSubview(
-                MiniatureDisplayView(
-                    display: display,
-                    showsDisplayNumber: showsDisplayNumbers,
-                    onRegionClicked: onRegionClicked
-                ))
+        for displayView in displayViews {
+            addSubview(displayView)
         }
 
         setAccessibilityElement(true)
@@ -80,11 +87,22 @@ final class MiniatureSpaceView: NSView {
 /// One display inside a space miniature, containing the clickable layout
 /// regions. The AppKit counterpart of the GNOME `createMiniatureDisplayView`.
 final class MiniatureDisplayView: NSView {
+    /// The layout region buttons, in the model's region order — the panel
+    /// walks these to map keyboard-focus coordinates onto buttons.
+    let regionButtons: [LayoutRegionButton]
+
     init(
         display: MiniaturePanelModel.DisplayMiniature,
         showsDisplayNumber: Bool,
         onRegionClicked: @escaping (LayoutSelectedEvent) -> Void
     ) {
+        self.regionButtons = display.regions.map { region in
+            LayoutRegionButton(
+                region: region,
+                displayKey: display.key,
+                onClick: onRegionClicked
+            )
+        }
         super.init(
             frame: NSRect(
                 x: display.frame.x, y: display.frame.y,
@@ -94,12 +112,7 @@ final class MiniatureDisplayView: NSView {
         layer?.cornerRadius = 4
         layer?.masksToBounds = true
 
-        for region in display.regions {
-            let button = LayoutRegionButton(
-                region: region,
-                displayKey: display.key,
-                onClick: onRegionClicked
-            )
+        for button in regionButtons {
             button.isEnabled = display.isConnected
             addSubview(button)
         }
@@ -183,12 +196,30 @@ final class MiniatureDisplayView: NSView {
 /// v0.3). Exposed to accessibility as a button titled with the layout
 /// label even when the visible text is dropped — keyboard navigation and
 /// the e2e harness depend on the title.
+///
+/// Keyboard focus and mouse hover are independent, the GNOME interplay
+/// (`layout-button.ts`, whose enter/leave handlers never touch the
+/// keyboard-focus flag): hovering another region highlights it *without*
+/// moving or clearing the keyboard focus, so both highlights can be on
+/// screen at once, and un-hovering a focused region leaves its focus style
+/// intact. The focused style shares the hover background (in GNOME the two
+/// styles are identical) but carries a brighter, thicker border so the
+/// keyboard position stays distinguishable next to a hover highlight.
 final class LayoutRegionButton: NSButton {
     let layout: Layout
     let displayKey: String
 
+    /// Whether the panel's keyboard navigation focuses this region. Set by
+    /// the panel only — mouse events never change it.
+    var isKeyboardFocused = false {
+        didSet { applyStyle() }
+    }
+
     private let onClick: (LayoutSelectedEvent) -> Void
     private var isHovered = false
+
+    private static let borderWidth: CGFloat = 1
+    private static let focusedBorderWidth: CGFloat = 2
 
     private static let labelFont = NSFont.systemFont(ofSize: 10)
     private static let labelPadding: CGFloat = 4
@@ -210,7 +241,6 @@ final class LayoutRegionButton: NSButton {
         setButtonType(.momentaryChange)
         wantsLayer = true
         layer?.cornerRadius = 2
-        layer?.borderWidth = 1
         applyStyle()
 
         title = Self.fits(label: layout.label, in: frame.size) ? layout.label : ""
@@ -269,15 +299,23 @@ final class LayoutRegionButton: NSButton {
         applyStyle()
     }
 
+    /// Style priority (the GNOME `getButtonStyle` order with the keyboard
+    /// focus folded in): the background highlights on hover *or* focus —
+    /// GNOME renders both states with the same style — while the border
+    /// grades focus above hover above normal so the keyboard position
+    /// stays visible under a concurrent hover.
     private func applyStyle() {
         layer?.backgroundColor =
-            (isHovered
+            (isHovered || isKeyboardFocused
             ? MiniaturePalette.regionBackgroundHovered
             : MiniaturePalette.regionBackground).cgColor
         layer?.borderColor =
-            (isHovered
-            ? MiniaturePalette.regionBorderHovered
-            : MiniaturePalette.regionBorder).cgColor
+            (isKeyboardFocused
+            ? MiniaturePalette.regionBorderFocused
+            : isHovered
+                ? MiniaturePalette.regionBorderHovered
+                : MiniaturePalette.regionBorder).cgColor
+        layer?.borderWidth = isKeyboardFocused ? Self.focusedBorderWidth : Self.borderWidth
     }
 
     // MARK: - Click

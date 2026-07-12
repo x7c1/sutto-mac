@@ -20,8 +20,16 @@ import SuttoOperations
 /// opens — the GNOME panel reloads the active collection on show the same
 /// way.
 ///
-/// Keyboard navigation, auto-hide, and space toggling arrive later within
-/// v0.3.
+/// The panel is fully keyboard-operable while it is key: arrows (and the
+/// other bindings of ``SuttoDomain/PanelKeyBinding``) move a focus
+/// highlight across the layout regions along the traversal rules of
+/// ``SuttoDomain/MiniaturePanelNavigator``, and Return applies the focused
+/// region through the same selection path a click takes — display
+/// targeting included. The panel opens unfocused (the GNOME navigator
+/// starts on the *selected* layout, and selection state is deferred within
+/// v0.3), so the first arrow press focuses the top-left region.
+///
+/// Auto-hide and space toggling arrive later within v0.3.
 @MainActor
 public final class LayoutPanel {
     /// Called when the user presses the open-settings shortcut
@@ -36,6 +44,15 @@ public final class LayoutPanel {
     private let selection: LayoutSelectionUseCase
     private var panel: OverlayPanel?
     private var renderedModel: MiniaturePanelModel?
+
+    /// Keyboard-navigation state, rebuilt whenever the content is: the
+    /// traversal rules, the region buttons by coordinate (for the focus
+    /// highlight), and the focused coordinate — `nil` until the first key
+    /// press, and reset on every hide the way the GNOME navigator's
+    /// `disable()` drops its focus.
+    private var navigator: MiniaturePanelNavigator?
+    private var regionButtons: [MiniaturePanelNavigator.Coordinate: LayoutRegionButton] = [:]
+    private var focusedCoordinate: MiniaturePanelNavigator.Coordinate?
 
     public init(model: ActivePanelModelUseCase, selection: LayoutSelectionUseCase) {
         self.model = model
@@ -73,8 +90,11 @@ public final class LayoutPanel {
         panel.makeKeyAndOrderFront(nil)
     }
 
-    /// Hides the panel. Keyboard focus returns to wherever it was.
+    /// Hides the panel. Keyboard focus returns to wherever it was, and the
+    /// panel's own navigation focus is dropped so the next show starts
+    /// unfocused again.
     public func hide() {
+        clearFocus()
         panel?.orderOut(nil)
     }
 
@@ -102,18 +122,67 @@ public final class LayoutPanel {
             self?.hide()
             self?.onOpenSettings?()
         }
+        panel.onPanelKey = { [weak self] action in
+            self?.handle(action)
+        }
         return panel
+    }
+
+    // MARK: - Keyboard navigation
+
+    private func handle(_ action: PanelKeyAction) {
+        switch action {
+        case .move(let direction):
+            // No candidate in that direction: keep the current focus (no
+            // wrap-around, like the GNOME navigator).
+            if let next = navigator?.move(from: focusedCoordinate, direction: direction) {
+                focus(next)
+            }
+        case .cycle(let reverse):
+            if let next = navigator?.advance(from: focusedCoordinate, reverse: reverse) {
+                focus(next)
+            }
+        case .activate:
+            // Return with nothing focused is a no-op, like the GNOME
+            // navigator's selectCurrentButton.
+            guard
+                let focusedCoordinate,
+                let event = navigator?.selection(at: focusedCoordinate)
+            else { return }
+            // The exact click path: same selection use case, same hide.
+            selection.select(event)
+            hide()
+        }
+    }
+
+    private func focus(_ coordinate: MiniaturePanelNavigator.Coordinate) {
+        if let focusedCoordinate {
+            regionButtons[focusedCoordinate]?.isKeyboardFocused = false
+        }
+        focusedCoordinate = coordinate
+        regionButtons[coordinate]?.isKeyboardFocused = true
+    }
+
+    private func clearFocus() {
+        if let focusedCoordinate {
+            regionButtons[focusedCoordinate]?.isKeyboardFocused = false
+        }
+        focusedCoordinate = nil
     }
 
     /// Rebuilds the miniature previews from the current panel model,
     /// skipping the rebuild when it matches what is already rendered (the
     /// common case of reopening the panel with nothing changed meanwhile).
+    /// A rebuild also rebuilds the keyboard navigator, whose traversal
+    /// geometry must match the rendered content.
     private func renderContentIfNeeded(in panel: OverlayPanel) {
         let model = self.model.panelModel()
         guard model != renderedModel else { return }
         renderedModel = model
 
+        clearFocus()
         let content = makeContent(from: model)
+        navigator = MiniaturePanelNavigator(model: model)
         let background = makeBackground(containing: content)
         panel.contentView = background
         panel.setContentSize(content.fittingSize)
@@ -128,29 +197,46 @@ public final class LayoutPanel {
         // Space numbering is continuous across rows (reading order), so
         // the AX labels identify spaces the way a user counts them.
         var spaceIndex = 0
-        let rowViews = model.rows.map { row -> NSView in
-            let miniatures = row.spaces.map { space -> NSView in
+        regionButtons = [:]
+        let rowViews = model.rows.enumerated().map { rowIndex, row -> NSView in
+            let miniatures = row.spaces.enumerated().map { spaceIndexInRow, space -> NSView in
                 let view = MiniatureSpaceView(
                     space: space,
                     index: spaceIndex,
                     onRegionClicked: onRegionClicked
                 )
                 spaceIndex += 1
+                registerRegionButtons(of: view, row: rowIndex, space: spaceIndexInRow)
                 return view
             }
             let rowStack = NSStackView(views: miniatures)
             rowStack.orientation = .horizontal
             rowStack.alignment = .top
-            rowStack.spacing = 6
+            rowStack.spacing = MiniaturePanelModel.Metrics.spaceSpacing
             return rowStack
         }
 
         let stack = NSStackView(views: rowViews.isEmpty ? [makeEmptyLabel()] : rowViews)
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 10
-        stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        stack.spacing = MiniaturePanelModel.Metrics.rowSpacing
+        let inset = MiniaturePanelModel.Metrics.contentInset
+        stack.edgeInsets = NSEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
         return stack
+    }
+
+    /// Indexes a space miniature's region buttons by navigator coordinate,
+    /// so key presses can restyle the focused button. The nesting mirrors
+    /// the model exactly (the views are built from it in order), which is
+    /// what makes the indices line up.
+    private func registerRegionButtons(of view: MiniatureSpaceView, row: Int, space: Int) {
+        for (displayIndex, displayView) in view.displayViews.enumerated() {
+            for (regionIndex, button) in displayView.regionButtons.enumerated() {
+                let coordinate = MiniaturePanelNavigator.Coordinate(
+                    row: row, space: space, display: displayIndex, region: regionIndex)
+                regionButtons[coordinate] = button
+            }
+        }
     }
 
     /// Shown when every space is disabled (or nothing resolves at all),
@@ -190,11 +276,12 @@ public final class LayoutPanel {
 }
 
 /// A borderless panel that can become key (borderless windows cannot by
-/// default), reports Escape via `onCancel`, and reports the open-settings
-/// shortcut via `onOpenSettings`.
+/// default), reports Escape via `onCancel`, the open-settings shortcut via
+/// `onOpenSettings`, and navigation key presses via `onPanelKey`.
 private final class OverlayPanel: NSPanel {
     var onCancel: (() -> Void)?
     var onOpenSettings: (() -> Void)?
+    var onPanelKey: ((PanelKeyAction) -> Void)?
 
     override var canBecomeKey: Bool { true }
 
@@ -219,10 +306,20 @@ private final class OverlayPanel: NSPanel {
     /// Fallback for the raw Escape key-down in case the event does not get
     /// routed through `cancelOperation(_:)` (borderless panels are not part
     /// of the standard window machinery that usually guarantees it).
+    ///
+    /// Navigation keys (``SuttoDomain/PanelKeyBinding``) are consumed here;
+    /// anything the binding does not recognize keeps its existing routing
+    /// (the GNOME navigator propagates unrecognized keys the same way).
     override func keyDown(with event: NSEvent) {
         let escapeKeyCode: UInt16 = 53
         if event.keyCode == escapeKeyCode {
             onCancel?()
+            return
+        }
+        if let action = PanelKeyBinding.action(for: KeyComboTranslation.combo(from: event)),
+            let onPanelKey
+        {
+            onPanelKey(action)
             return
         }
         super.keyDown(with: event)
