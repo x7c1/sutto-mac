@@ -1,9 +1,16 @@
 import AppKit
-import SuttoCore
+import SuttoInfra
+import SuttoOperations
+import SuttoUI
 
+/// Composition root: instantiates the concrete infra adapters, wires them
+/// into the operations layer, and hands the result to the UI. No business
+/// logic lives here.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let permissionChecker = AccessibilityPermissionChecker()
+    private let permission = AccessibilityPermissionUseCase(
+        checker: AccessibilityPermissionChecker()
+    )
     private var statusItemController: StatusItemController?
     private var permissionOnboarding: PermissionOnboarding?
 
@@ -13,10 +20,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // development, where no Info.plist is present.
         NSApp.setActivationPolicy(.accessory)
 
-        statusItemController = StatusItemController(permissionChecker: permissionChecker)
+        statusItemController = StatusItemController(permission: permission)
 
-        if PermissionOnboardingPolicy.shouldPresent(for: permissionChecker.currentStatus()) {
-            let onboarding = PermissionOnboarding(permissionChecker: permissionChecker)
+        if permission.shouldPresentOnboarding() {
+            let onboarding = PermissionOnboarding(permission: permission)
             permissionOnboarding = onboarding
             onboarding.present()
         }

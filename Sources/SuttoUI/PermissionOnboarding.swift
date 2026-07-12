@@ -1,20 +1,20 @@
 import AppKit
-import SuttoCore
+import SuttoOperations
 
 /// Presents a small window that guides the user through granting the
 /// Accessibility permission Sutto needs to move and resize windows, and
 /// polls until the permission is granted.
 @MainActor
-final class PermissionOnboarding {
-    private let permissionChecker: AccessibilityPermissionChecker
+public final class PermissionOnboarding {
+    private let permission: AccessibilityPermissionUseCase
     private var window: NSWindow?
     private var pollTimer: Timer?
 
-    init(permissionChecker: AccessibilityPermissionChecker) {
-        self.permissionChecker = permissionChecker
+    public init(permission: AccessibilityPermissionUseCase) {
+        self.permission = permission
     }
 
-    func present() {
+    public func present() {
         let window = self.window ?? makeWindow()
         self.window = window
 
@@ -25,7 +25,7 @@ final class PermissionOnboarding {
         startPolling()
     }
 
-    func dismiss() {
+    public func dismiss() {
         stopPolling()
         window?.close()
         window = nil
@@ -34,7 +34,7 @@ final class PermissionOnboarding {
     // MARK: - Actions
 
     @objc private func requestPermission() {
-        permissionChecker.requestPermission()
+        permission.requestPermission()
     }
 
     @objc private func openSystemSettings() {
@@ -63,7 +63,7 @@ final class PermissionOnboarding {
     }
 
     @objc private func pollPermission() {
-        if PermissionOnboardingPolicy.isComplete(for: permissionChecker.currentStatus()) {
+        if permission.isOnboardingComplete() {
             dismiss()
         }
     }

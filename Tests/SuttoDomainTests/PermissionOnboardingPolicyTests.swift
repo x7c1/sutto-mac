@@ -1,6 +1,6 @@
 import Testing
 
-@testable import SuttoCore
+@testable import SuttoDomain
 
 @Suite struct PermissionOnboardingPolicyTests {
     @Test func presentsOnboardingWhenPermissionIsDenied() {

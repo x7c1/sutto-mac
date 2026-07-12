@@ -1,6 +1,10 @@
 // swift-tools-version: 6.0
 import PackageDescription
 
+// Layered architecture with dependencies pointing inward toward the domain.
+// See docs/guides/architecture.md for the full picture. The dependency lists
+// below are the enforcement mechanism: an import that violates the layering
+// fails to compile.
 let package = Package(
     name: "sutto-mac",
     platforms: [
@@ -10,19 +14,44 @@ let package = Package(
         .executable(name: "Sutto", targets: ["SuttoApp"])
     ],
     targets: [
-        // Platform-independent domain logic. Must not import AppKit or any
-        // other macOS UI framework so it stays heavily unit-testable.
-        .target(name: "SuttoCore"),
+        // Pure domain models and logic. Foundation only; must not import
+        // AppKit, ApplicationServices, or any other macOS framework.
+        .target(name: "SuttoDomain"),
 
-        // AppKit shell: menu bar residency, windows, and OS integrations.
+        // Use cases coordinating the domain, plus the protocols that the
+        // infra layer implements.
+        .target(
+            name: "SuttoOperations",
+            dependencies: ["SuttoDomain"]
+        ),
+
+        // Concrete adapters over Apple frameworks (Accessibility APIs etc.),
+        // implementing the protocols defined by SuttoOperations.
+        .target(
+            name: "SuttoInfra",
+            dependencies: ["SuttoOperations", "SuttoDomain"]
+        ),
+
+        // Everything on screen: AppKit views, windows, and the status item.
+        .target(
+            name: "SuttoUI",
+            dependencies: ["SuttoOperations", "SuttoDomain"]
+        ),
+
+        // Composition root: instantiation, wiring, and app lifecycle only.
         .executableTarget(
             name: "SuttoApp",
-            dependencies: ["SuttoCore"]
+            dependencies: ["SuttoUI", "SuttoInfra", "SuttoOperations", "SuttoDomain"]
         ),
 
         .testTarget(
-            name: "SuttoCoreTests",
-            dependencies: ["SuttoCore"]
+            name: "SuttoDomainTests",
+            dependencies: ["SuttoDomain"]
+        ),
+
+        .testTarget(
+            name: "SuttoOperationsTests",
+            dependencies: ["SuttoOperations", "SuttoDomain"]
         ),
     ]
 )

@@ -1,15 +1,15 @@
 import AppKit
-import SuttoCore
+import SuttoOperations
 
 /// Owns the menu bar `NSStatusItem` and its menu.
 @MainActor
-final class StatusItemController: NSObject, NSMenuDelegate {
+public final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
-    private let permissionChecker: AccessibilityPermissionChecker
+    private let permission: AccessibilityPermissionUseCase
     private let permissionStatusMenuItem: NSMenuItem
 
-    init(permissionChecker: AccessibilityPermissionChecker) {
-        self.permissionChecker = permissionChecker
+    public init(permission: AccessibilityPermissionUseCase) {
+        self.permission = permission
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         permissionStatusMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         super.init()
@@ -21,7 +21,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     // MARK: - NSMenuDelegate
 
-    func menuWillOpen(_ menu: NSMenu) {
+    public func menuWillOpen(_ menu: NSMenu) {
         refreshPermissionStatus()
     }
 
@@ -60,7 +60,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func refreshPermissionStatus() {
-        switch permissionChecker.currentStatus() {
+        switch permission.currentStatus() {
         case .granted:
             permissionStatusMenuItem.title = "Accessibility: Granted"
         case .denied:
