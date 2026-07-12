@@ -178,6 +178,63 @@ private let windowOnPrimary = PixelRect(x: 200, y: 200, width: 800, height: 600)
         #expect(windows.appliedFrames.isEmpty)
     }
 
+    // MARK: - Explicit display key (cross-monitor placement)
+
+    @Test func placesOnTheScreenNamedByTheDisplayKey() {
+        // The window sits on the primary; the clicked miniature names the
+        // secondary — the window must land there regardless.
+        let (useCase, windows) = makeUseCase()
+
+        useCase.place(leftHalf, onDisplayKey: "1")
+
+        // Left half of the secondary's AX work area (1920, 205, 1600, 875).
+        #expect(windows.appliedFrames == [PixelRect(x: 1920, y: 205, width: 800, height: 875)])
+    }
+
+    @Test func displayKeyZeroTargetsThePrimaryFromAnywhere() {
+        // The window sits on the secondary; key "0" pulls it to the primary.
+        let (useCase, windows) = makeUseCase(
+            windowFrame: PixelRect(x: 2000, y: 300, width: 800, height: 600)
+        )
+
+        useCase.place(leftHalf, onDisplayKey: "0")
+
+        #expect(windows.appliedFrames == [PixelRect(x: 0, y: 25, width: 960, height: 1055)])
+    }
+
+    /// A collection made for more displays than are attached: the GNOME
+    /// applicator skips placement when the monitor key resolves to nothing,
+    /// and so does this path.
+    @Test func skipsPlacementWhenTheDisplayKeyExceedsConnectedScreens() {
+        let (useCase, windows) = makeUseCase()
+
+        useCase.place(leftHalf, onDisplayKey: "2")
+
+        #expect(windows.appliedFrames.isEmpty)
+    }
+
+    @Test func skipsPlacementForAMalformedDisplayKey() {
+        let (useCase, windows) = makeUseCase()
+
+        useCase.place(leftHalf, onDisplayKey: "not-a-number")
+
+        #expect(windows.appliedFrames.isEmpty)
+    }
+
+    @Test func displayKeyPlacementSharesTheCommonGuards() {
+        let (denied, deniedWindows) = makeUseCase(permission: .denied)
+        denied.place(leftHalf, onDisplayKey: "0")
+        #expect(deniedWindows.appliedFrames.isEmpty)
+
+        let (noWindow, noWindowWindows) = makeUseCase(windowFrame: nil)
+        noWindow.place(leftHalf, onDisplayKey: "0")
+        #expect(noWindowWindows.appliedFrames.isEmpty)
+
+        let (noScreens, noScreensWindows) = makeUseCase(screens: [])
+        noScreens.place(leftHalf, onDisplayKey: "0")
+        #expect(noScreensWindows.appliedFrames.isEmpty)
+    }
+
     @Test func survivesAnApplyFailure() {
         let (useCase, windows) = makeUseCase()
         windows.applySucceeds = false

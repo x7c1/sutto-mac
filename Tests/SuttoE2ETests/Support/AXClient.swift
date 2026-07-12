@@ -18,7 +18,9 @@ enum AXClient {
     private static let roleAttribute = "AXRole" as CFString
     private static let titleAttribute = "AXTitle" as CFString
     private static let frontmostAttribute = "AXFrontmost" as CFString
+    private static let descriptionAttribute = "AXDescription" as CFString
     private static let buttonRole = "AXButton"
+    private static let groupRole = "AXGroup"
     private static let pressAction = "AXPress" as CFString
 
     // MARK: - Application state
@@ -69,6 +71,26 @@ enum AXClient {
         return PixelRect(x: position.x, y: position.y, width: size.width, height: size.height)
     }
 
+    // MARK: - Groups
+
+    /// Depth-first search for every group labeled `label` in the element's
+    /// subtree (the element itself included). NSView accessibility labels
+    /// surface as `AXDescription`; the title is checked as a fallback.
+    /// The panel's space and display miniatures are such groups
+    /// ("Space 1", "Display 2", ...).
+    static func groups(labeled label: String, under element: AXUIElement) -> [AXUIElement] {
+        var found: [AXUIElement] = []
+        if role(of: element) == groupRole,
+            description(of: element) == label || title(of: element) == label
+        {
+            found.append(element)
+        }
+        for child in children(of: element) {
+            found.append(contentsOf: groups(labeled: label, under: child))
+        }
+        return found
+    }
+
     // MARK: - Buttons
 
     /// Depth-first search for a button with the given title in the element's
@@ -109,6 +131,10 @@ enum AXClient {
 
     private static func title(of element: AXUIElement) -> String? {
         copyAttribute(titleAttribute, of: element) as? String
+    }
+
+    private static func description(of element: AXUIElement) -> String? {
+        copyAttribute(descriptionAttribute, of: element) as? String
     }
 
     private static func copyAttribute(

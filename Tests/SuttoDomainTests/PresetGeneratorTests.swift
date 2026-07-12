@@ -32,9 +32,12 @@ private func resolveFrames(
 }
 
 /// The layout groups a generated preset assigns to the primary display, in
-/// reading order — the projection the panel renders.
+/// reading order (rows top to bottom, spaces left to right) — the order the
+/// panel renders spaces in.
 private func primaryGroups(of collection: SpaceCollection) -> [LayoutGroup] {
-    LayoutPanelProjection.layoutGroups(in: collection)
+    collection.rows
+        .flatMap(\.spaces)
+        .compactMap { $0.displays[PanelDisplayKey.primary] }
 }
 
 private func group(named name: String, in collection: SpaceCollection) throws -> LayoutGroup {

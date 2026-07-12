@@ -27,6 +27,23 @@ enum ExpectedFrame {
         return frame
     }
 
+    /// The target frame in AX coordinates for `layout` applied on the
+    /// screen at `index` of `NSScreen.screens` — the explicit-screen rule
+    /// behind cross-monitor placement (display key "N" names screen N).
+    static func resolve(_ layout: Layout, onScreenAt index: Int) throws -> PixelRect {
+        let screens = NSScreen.screens.map {
+            Screen(frame: pixelRect($0.frame), visibleFrame: pixelRect($0.visibleFrame))
+        }
+        guard screens.indices.contains(index), let primary = screens.first else {
+            throw E2EFailure("no screen at index \(index)")
+        }
+        return try PlacementFrameResolver.resolve(
+            layout: layout,
+            on: screens[index],
+            primary: primary
+        )
+    }
+
     private static func pixelRect(_ rect: NSRect) -> PixelRect {
         PixelRect(
             x: rect.origin.x, y: rect.origin.y,
