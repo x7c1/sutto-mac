@@ -16,13 +16,25 @@ SWIFT_TEST_FLAGS := \
 	-Xlinker -rpath -Xlinker $(DEVELOPER_DIR_PATH)/Library/Developer/usr/lib
 endif
 
-.PHONY: build test app run clean
+.PHONY: build test e2e app run clean
 
 build:
 	swift build -c $(CONFIG)
 
+# Unit tests only. The SuttoE2ETests module needs the Accessibility (TCC)
+# permission, so the default run must never execute it (CI runs this target);
+# `make e2e` runs it instead. --skip/--filter match test identifiers, which
+# start with the module name, so this pair splits the suites robustly no
+# matter what tests are added to either side.
 test:
-	swift test $(SWIFT_TEST_FLAGS)
+	swift test $(SWIFT_TEST_FLAGS) --skip SuttoE2ETests
+
+# Local-only end-to-end suite: drives the freshly assembled bundle (hence
+# the `app` dependency) with injected keystrokes and the Accessibility API.
+# Needs the Accessibility permission granted to the terminal this runs
+# from — see "End-to-end tests" in docs/guides/testing.md.
+e2e: app
+	swift test $(SWIFT_TEST_FLAGS) --filter SuttoE2ETests
 
 # Assemble a minimal .app bundle from the SwiftPM binary. SwiftPM alone
 # does not produce bundles, and LSUIElement only takes effect when the

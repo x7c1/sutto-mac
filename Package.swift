@@ -53,5 +53,25 @@ let package = Package(
             name: "SuttoOperationsTests",
             dependencies: ["SuttoOperations", "SuttoDomain"]
         ),
+
+        // Local-only end-to-end suite: launches the real Sutto.app bundle and
+        // drives it from the outside (event injection + Accessibility API).
+        // Needs the TCC Accessibility permission, so `make test` skips it and
+        // `make e2e` runs it — see docs/guides/testing.md. Depends on
+        // SuttoDomain only (shared constants and frame math): the harness
+        // must observe the app like an external tool, not reach into
+        // SuttoInfra/SuttoUI internals.
+        .testTarget(
+            name: "SuttoE2ETests",
+            dependencies: ["SuttoDomain"]
+        ),
+
+        // A minimal window-owning app that the e2e suite launches as its
+        // placement target. Test-only, hence under Tests/ despite being an
+        // executable target.
+        .executableTarget(
+            name: "SuttoE2ETargetApp",
+            path: "Tests/SuttoE2ETargetApp"
+        ),
     ]
 )
