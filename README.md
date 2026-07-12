@@ -23,6 +23,8 @@ A window snapping app for macOS, bringing the [Sutto](https://github.com/x7c1/su
 
 The app lives in the menu bar (no Dock icon). During development the bundle is unsigned, so macOS treats every rebuilt binary as a new app: you have to grant (or re-grant) the Accessibility permission manually under System Settings › Privacy & Security › Accessibility. The onboarding window shown at first launch walks through this.
 
+To watch the app's logs while verifying behavior, see [Debugging and Logging](docs/guides/debugging.md).
+
 ## License
 
 This project is licensed under the GNU General Public License v3.0 or later - see the [LICENSE](LICENSE) file for details.
