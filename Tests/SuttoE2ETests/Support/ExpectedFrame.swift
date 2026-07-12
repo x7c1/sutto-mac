@@ -49,7 +49,10 @@ enum ExpectedFrame {
     /// keeps the runner invisible (no Dock icon, no activation).
     private static var appKitLaunched = false
 
-    private static func currentScreens() -> [Screen] {
+    /// Exposed for scenarios that replicate the app's domain math beyond a
+    /// single frame — the keyboard scenario rebuilds the whole panel model
+    /// from these screens to predict where the focus travels.
+    static func currentScreens() -> [Screen] {
         if !appKitLaunched {
             appKitLaunched = true
             NSApplication.shared.setActivationPolicy(.prohibited)
