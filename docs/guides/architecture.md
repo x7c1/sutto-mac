@@ -96,4 +96,4 @@ These rules are encoded as target dependencies in `Package.swift`, so the compil
 
 - `Tests/SuttoDomainTests` covers the pure domain logic.
 - `Tests/SuttoOperationsTests` covers use cases, substituting the SuttoOperations protocols with in-test stubs — no AX APIs or AppKit involved.
-- Anything requiring the Accessibility (TCC) permission is local-only; see `CLAUDE.md` for the testing strategy.
+- Anything requiring the Accessibility (TCC) permission is local-only; see [testing.md](testing.md) for the testing strategy.

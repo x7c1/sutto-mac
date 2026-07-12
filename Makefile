@@ -3,10 +3,8 @@ CONFIG ?= release
 BINARY := .build/$(CONFIG)/$(APP_NAME)
 BUNDLE := .build/$(APP_NAME).app
 
-# With Command Line Tools only (no full Xcode), SwiftPM does not wire up
-# Swift Testing on its own even though the toolchain ships it. Point the
-# compiler, macro plugin, and dynamic linker at the CLT copies explicitly.
-# With a full Xcode toolchain these flags are unnecessary and stay empty.
+# With Command Line Tools only, SwiftPM needs explicit flags to find Swift
+# Testing (empty with full Xcode). Full story: docs/guides/testing.md
 DEVELOPER_DIR_PATH := $(shell xcode-select -p)
 ifneq (,$(findstring CommandLineTools,$(DEVELOPER_DIR_PATH)))
 TESTING_FRAMEWORKS := $(DEVELOPER_DIR_PATH)/Library/Developer/Frameworks
