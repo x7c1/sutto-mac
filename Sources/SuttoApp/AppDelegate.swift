@@ -24,8 +24,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // development, where no Info.plist is present.
         NSApp.setActivationPolicy(.accessory)
 
-        // The selection handler only logs for now; the window-placement PR
-        // replaces it with one that snaps the frontmost window.
+        // Selecting a layout snaps the frontmost app's focused window. The
+        // layout panel is a non-activating NSPanel, so the app that was
+        // frontmost when the panel appeared is still frontmost when the
+        // button is clicked — placement targets that app's window.
+        let placement = WindowPlacementUseCase(
+            permission: AccessibilityPermissionChecker(),
+            windows: AXWindowController(),
+            screens: SystemScreenProvider()
+        )
         let panel = LayoutPanel(
             groups: BuiltInPresets.standardLayoutGroups,
             selection: LayoutSelectionUseCase { layout in
@@ -34,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // the selected layout from this dev-facing log.
                 Logger(subsystem: "io.github.x7c1.SuttoMac", category: "selection")
                     .info("layout selected: \(layout.label, privacy: .public)")
+                placement.place(layout)
             }
         )
         layoutPanel = panel

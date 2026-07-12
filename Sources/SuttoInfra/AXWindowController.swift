@@ -1,0 +1,157 @@
+import AppKit
+import ApplicationServices
+import SuttoDomain
+import SuttoOperations
+import os
+
+/// Controls the frontmost app's focused window through the Accessibility
+/// (AX) API: `NSWorkspace` names the frontmost app, and the AX element tree
+/// of that app exposes its focused window's position and size.
+///
+/// All frames are in AX coordinates (global top-left origin, y down), as the
+/// ``WindowControlling`` protocol requires — the AX attributes use that
+/// space natively, so no conversion happens here.
+@MainActor
+public final class AXWindowController: WindowControlling {
+    // The literal values of `kAXFocusedWindowAttribute`,
+    // `kAXPositionAttribute`, and `kAXSizeAttribute`. Referencing the
+    // globals directly is rejected under Swift 6 strict concurrency (they
+    // are imported as shared mutable state), same as in
+    // `AccessibilityPermissionChecker`.
+    private let focusedWindowAttribute = "AXFocusedWindow" as CFString
+    private let positionAttribute = "AXPosition" as CFString
+    private let sizeAttribute = "AXSize" as CFString
+
+    private let logger = Logger(
+        subsystem: "io.github.x7c1.SuttoMac", category: "placement")
+
+    public init() {}
+
+    public func focusedWindowFrame() -> PixelRect? {
+        guard let window = focusedWindow() else { return nil }
+        guard let position = position(of: window), let size = size(of: window) else {
+            logger.error("could not read the focused window's frame")
+            return nil
+        }
+        return PixelRect(
+            x: position.x, y: position.y, width: size.width, height: size.height)
+    }
+
+    public func applyFrame(_ frame: PixelRect) -> Bool {
+        guard let window = focusedWindow() else { return false }
+
+        let requestedPosition = CGPoint(x: frame.x, y: frame.y)
+        let requestedSize = CGSize(width: frame.width, height: frame.height)
+
+        // Set size → position → size, the strategy proven by Rectangle
+        // (rxhanson/Rectangle). A single size/position pair can settle on a
+        // deviating frame even though every call returns success: resizing
+        // can push the window around (menu bar avoidance), and moving can
+        // change which screen's constraints apply. Sizing first bounds the
+        // window, positioning then anchors the top-left corner, and the
+        // final size pass fixes what the move disturbed.
+        setSize(requestedSize, of: window)
+        setPosition(requestedPosition, of: window)
+        setSize(requestedSize, of: window)
+
+        // The AX calls can report success while the app clamps the frame
+        // (minimum window sizes, menu bar constraints), so read the frame
+        // back and log request versus actual — deviations must be
+        // observable in the log, not silent.
+        guard let actualPosition = position(of: window), let actualSize = size(of: window) else {
+            logger.error("could not read back the frame after applying it")
+            return false
+        }
+        let actual = PixelRect(
+            x: actualPosition.x, y: actualPosition.y,
+            width: actualSize.width, height: actualSize.height)
+        let requested = describe(frame)
+        let readBack = describe(actual)
+        logger.info(
+            """
+            placement applied: requested \(requested, privacy: .public), \
+            actual \(readBack, privacy: .public)
+            """)
+        return true
+    }
+
+    // MARK: - AX element lookup
+
+    private func focusedWindow() -> AXUIElement? {
+        guard let app = NSWorkspace.shared.frontmostApplication else {
+            logger.error("no frontmost application")
+            return nil
+        }
+        let axApp = AXUIElementCreateApplication(app.processIdentifier)
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(axApp, focusedWindowAttribute, &value)
+        guard result == .success, let value, CFGetTypeID(value) == AXUIElementGetTypeID() else {
+            let name = app.localizedName ?? "pid \(app.processIdentifier)"
+            logger.error(
+                """
+                no focused window on \(name, privacy: .public) \
+                (AXError \(result.rawValue, privacy: .public))
+                """)
+            return nil
+        }
+        // Safe: the type id was checked above; AXUIElement has no Swift
+        // conditional-cast support, so this is the canonical downcast.
+        return (value as! AXUIElement)
+    }
+
+    // MARK: - AX attribute plumbing
+
+    private func position(of window: AXUIElement) -> CGPoint? {
+        var point = CGPoint.zero
+        guard axValue(of: window, attribute: positionAttribute, type: .cgPoint, into: &point)
+        else { return nil }
+        return point
+    }
+
+    private func size(of window: AXUIElement) -> CGSize? {
+        var size = CGSize.zero
+        guard axValue(of: window, attribute: sizeAttribute, type: .cgSize, into: &size)
+        else { return nil }
+        return size
+    }
+
+    private func axValue<T>(
+        of window: AXUIElement,
+        attribute: CFString,
+        type: AXValueType,
+        into destination: inout T
+    ) -> Bool {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(window, attribute, &value)
+        guard result == .success, let value, CFGetTypeID(value) == AXValueGetTypeID() else {
+            return false
+        }
+        return AXValueGetValue(value as! AXValue, type, &destination)
+    }
+
+    private func setPosition(_ position: CGPoint, of window: AXUIElement) {
+        var position = position
+        guard let value = AXValueCreate(.cgPoint, &position) else { return }
+        let result = AXUIElementSetAttributeValue(window, positionAttribute, value)
+        if result != .success {
+            logger.error("setting AXPosition failed (AXError \(result.rawValue, privacy: .public))")
+        }
+    }
+
+    private func setSize(_ size: CGSize, of window: AXUIElement) {
+        var size = size
+        guard let value = AXValueCreate(.cgSize, &size) else { return }
+        let result = AXUIElementSetAttributeValue(window, sizeAttribute, value)
+        if result != .success {
+            logger.error("setting AXSize failed (AXError \(result.rawValue, privacy: .public))")
+        }
+    }
+
+    private func describe(_ rect: PixelRect) -> String {
+        func format(_ value: Double) -> String {
+            value == value.rounded() ? String(Int(value)) : String(value)
+        }
+        return "(x=\(format(rect.x)), y=\(format(rect.y)), "
+            + "w=\(format(rect.width)), h=\(format(rect.height)))"
+    }
+}

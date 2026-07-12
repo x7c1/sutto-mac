@@ -27,6 +27,12 @@ test:
 # Assemble a minimal .app bundle from the SwiftPM binary. SwiftPM alone
 # does not produce bundles, and LSUIElement only takes effect when the
 # process runs from a bundle with an Info.plist.
+#
+# With CODESIGN_IDENTITY set (make variable or environment), the bundle is
+# signed so that the TCC Accessibility grant survives rebuilds; unset, the
+# bundle stays unsigned as before. Development-only convenience, unrelated
+# to distribution signing — see "Keeping the Accessibility permission
+# across rebuilds" in docs/guides/debugging.md.
 app: build
 	rm -rf $(BUNDLE)
 	mkdir -p $(BUNDLE)/Contents/MacOS
@@ -34,6 +40,10 @@ app: build
 	cp Packaging/Info.plist $(BUNDLE)/Contents/Info.plist
 	printf 'APPL????' > $(BUNDLE)/Contents/PkgInfo
 	plutil -lint $(BUNDLE)/Contents/Info.plist
+	@if [ -n "$(CODESIGN_IDENTITY)" ]; then \
+		codesign --force --sign "$(CODESIGN_IDENTITY)" $(BUNDLE); \
+		echo "codesigned $(BUNDLE) with identity: $(CODESIGN_IDENTITY)"; \
+	fi
 
 # Quit any running instance first: `open` only activates an already-running
 # app, so without this the freshly built binary would never launch.
