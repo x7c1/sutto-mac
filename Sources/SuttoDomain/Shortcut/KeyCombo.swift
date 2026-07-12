@@ -38,8 +38,8 @@ extension KeyCombo {
     /// v0.1 hardcodes this combo. The v0.2 shortcut-capture UI replaces this
     /// constant with a user-configurable value.
     public static let defaultTogglePanel = KeyCombo(
-        keyCode: 49,  // kVK_Space (the domain cannot import Carbon for the constant)
-        modifiers: [.control, .option]
+        keyCode: 31,  // kVK_ANSI_O (the domain cannot import Carbon for the constant)
+        modifiers: [.control, .command]
     )
 }
 
@@ -59,6 +59,7 @@ extension KeyCombo {
     private var keyName: String {
         // Only the keys Sutto actually uses are named; extend as needed.
         switch keyCode {
+        case 31: "O"
         case 49: "Space"
         default: "key(\(keyCode))"
         }

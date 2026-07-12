@@ -3,15 +3,15 @@ import Testing
 @testable import SuttoDomain
 
 @Suite struct KeyComboTests {
-    @Test func defaultTogglePanelIsControlOptionSpace() {
+    @Test func defaultTogglePanelIsControlCommandO() {
         let combo = KeyCombo.defaultTogglePanel
 
-        #expect(combo.keyCode == 49)  // kVK_Space
-        #expect(combo.modifiers == [.control, .option])
+        #expect(combo.keyCode == 31)  // kVK_ANSI_O
+        #expect(combo.modifiers == [.control, .command])
     }
 
     @Test func rendersTheDefaultTogglePanelComboForLogs() {
-        #expect(KeyCombo.defaultTogglePanel.displayString == "⌃⌥Space")
+        #expect(KeyCombo.defaultTogglePanel.displayString == "⌃⌘O")
     }
 
     @Test func rendersModifiersInConventionalMacOrder() {
