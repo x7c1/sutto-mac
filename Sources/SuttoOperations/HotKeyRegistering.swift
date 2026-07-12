@@ -14,4 +14,9 @@ public protocol HotKeyRegistering {
     /// Throws if the system refuses the registration (for example, when
     /// another app already claimed the same combo).
     func register(_ combo: KeyCombo, onPress: @escaping @MainActor () -> Void) throws
+
+    /// Removes every registration made through this instance. Used when a
+    /// shortcut changes at runtime: unregister the old combo, then
+    /// `register` the new one.
+    func unregisterAll()
 }

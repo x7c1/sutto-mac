@@ -12,14 +12,22 @@ import SuttoOperations
 @MainActor
 public final class CarbonHotKeyRegistrar: HotKeyRegistering {
     private var hotKeys: [CarbonHotKey] = []
+    private var nextID: UInt32 = 0
 
     public init() {}
 
     public func register(_ combo: KeyCombo, onPress: @escaping @MainActor () -> Void) throws {
-        // IDs only need to be unique within this registrar; the signature in
-        // EventHotKeyID already namespaces them to Sutto.
-        let id = UInt32(hotKeys.count + 1)
-        hotKeys.append(try CarbonHotKey(combo: combo, id: id, onPress: onPress))
+        // IDs only need to be unique among the *live* registrations (a
+        // freed CarbonHotKey unregisters its ID on deinit), so a running
+        // maximum survives unregisterAll without ever colliding.
+        nextID += 1
+        hotKeys.append(try CarbonHotKey(combo: combo, id: nextID, onPress: onPress))
+    }
+
+    public func unregisterAll() {
+        // Dropping the instances is the whole mechanism: each CarbonHotKey
+        // removes its event handler and unregisters its hotkey on deinit.
+        hotKeys = []
     }
 }
 
