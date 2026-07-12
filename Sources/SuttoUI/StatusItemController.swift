@@ -7,9 +7,14 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let permission: AccessibilityPermissionUseCase
     private let permissionStatusMenuItem: NSMenuItem
+    private let onShowPanel: () -> Void
 
-    public init(permission: AccessibilityPermissionUseCase) {
+    public init(
+        permission: AccessibilityPermissionUseCase,
+        onShowPanel: @escaping () -> Void
+    ) {
         self.permission = permission
+        self.onShowPanel = onShowPanel
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         permissionStatusMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         super.init()
@@ -23,6 +28,12 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 
     public func menuWillOpen(_ menu: NSMenu) {
         refreshPermissionStatus()
+    }
+
+    // MARK: - Actions
+
+    @objc private func showPanel() {
+        onShowPanel()
     }
 
     // MARK: - Private
@@ -47,6 +58,17 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         // Auto-enablement disables this item because it has no action,
         // which is what we want for a status-only row.
         menu.addItem(permissionStatusMenuItem)
+        menu.addItem(.separator())
+
+        // Temporary trigger for the layout panel until the global-shortcut
+        // work lands; the shortcut PR replaces or augments this item.
+        let showPanelItem = NSMenuItem(
+            title: "Show Panel",
+            action: #selector(showPanel),
+            keyEquivalent: ""
+        )
+        showPanelItem.target = self
+        menu.addItem(showPanelItem)
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(
