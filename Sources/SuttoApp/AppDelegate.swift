@@ -26,6 +26,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // development, where no Info.plist is present.
         NSApp.setActivationPolicy(.accessory)
 
+        let screens = SystemScreenProvider()
+
         // Selecting a layout snaps the frontmost app's focused window. The
         // layout panel is a non-activating NSPanel, so the app that was
         // frontmost when the panel appeared is still frontmost when the
@@ -33,20 +35,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let placement = WindowPlacementUseCase(
             permission: AccessibilityPermissionChecker(),
             windows: AXWindowController(),
-            screens: SystemScreenProvider()
+            screens: screens
         )
         // Collections persist under Application Support, the active
         // selection under UserDefaults — the same file/GSettings split the
         // GNOME version uses. With nothing imported, the panel falls back
-        // to the built-in presets.
+        // to the preset generated for the connected monitors.
         let collections = FileSpaceCollectionRepository(
             directory: FileSpaceCollectionRepository.defaultDirectory()
         )
         let preferences = UserDefaultsPreferencesRepository()
+
+        // Generate the presets for the current monitor configuration once
+        // at launch, then again whenever the panel or the settings open —
+        // the same ensure-on-open the GNOME version runs, so plugging in a
+        // monitor mid-session is picked up without a restart.
+        let presetGenerator = PresetGeneratorUseCase(
+            repository: collections,
+            screens: screens
+        )
+        presetGenerator.ensurePresetsForCurrentMonitors()
+
         let activeGroups = ActiveLayoutGroupsUseCase(
             repository: collections,
             preferences: preferences,
-            presetGroups: BuiltInPresets.standardLayoutGroups
+            screens: screens
         )
 
         let panel = LayoutPanel(
@@ -64,14 +77,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let togglePanel = PanelToggleUseCase(
             isPanelVisible: { [weak panel] in panel?.isVisible ?? false },
-            showPanel: { [weak panel] in panel?.show() },
+            showPanel: { [weak panel] in
+                // Ensure-on-open, like the GNOME MainPanel.show().
+                presetGenerator.ensurePresetsForCurrentMonitors()
+                panel?.show()
+            },
             hidePanel: { [weak panel] in panel?.hide() }
         )
 
         let settings = SettingsWindowController(
             collections: CollectionSettingsUseCase(
                 repository: collections,
-                preferences: preferences
+                preferences: preferences,
+                screens: screens
             ),
             layoutImport: LayoutImportController(
                 importCollection: ImportCollectionUseCase(
@@ -83,14 +101,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         settingsWindow = settings
 
+        // Ensure-on-open for settings too, mirroring the GNOME preferences
+        // (`buildPreferencesUI` ensures before rendering the list).
+        let presentSettings = {
+            presetGenerator.ensurePresetsForCurrentMonitors()
+            settings.present()
+        }
+
         // ⌘, while the panel is open jumps to settings (GNOME behavior,
         // with the mac-conventional combo).
-        panel.onOpenSettings = { settings.present() }
+        panel.onOpenSettings = presentSettings
 
         statusItemController = StatusItemController(
             permission: permission,
             onTogglePanel: { togglePanel.toggle() },
-            onOpenSettings: { settings.present() }
+            onOpenSettings: presentSettings
         )
 
         if permission.shouldPresentOnboarding() {

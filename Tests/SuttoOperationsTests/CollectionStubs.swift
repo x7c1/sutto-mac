@@ -7,8 +7,20 @@ import SuttoDomain
 /// involved, and saves can be scripted to fail.
 @MainActor
 final class InMemorySpaceCollectionRepository: SpaceCollectionRepository {
+    var presetCollections: [SpaceCollection] = []
     var collections: [SpaceCollection] = []
     var saveError: Error?
+
+    func loadPresetCollections() -> [SpaceCollection] {
+        presetCollections
+    }
+
+    func savePresetCollections(_ collections: [SpaceCollection]) throws {
+        if let saveError {
+            throw saveError
+        }
+        presetCollections = collections
+    }
 
     func loadCustomCollections() -> [SpaceCollection] {
         collections
@@ -19,6 +31,33 @@ final class InMemorySpaceCollectionRepository: SpaceCollectionRepository {
             throw saveError
         }
         self.collections = collections
+    }
+}
+
+/// Scriptable ``ScreenProviding`` for use-case tests: whatever display
+/// arrangement a test needs, no AppKit involved.
+@MainActor
+final class StubScreenProvider: ScreenProviding {
+    var stubbedScreens: [Screen]
+
+    init(screens: [Screen] = []) {
+        stubbedScreens = screens
+    }
+
+    /// A landscape screen of the given size at the AppKit origin.
+    static func screen(width: Double, height: Double) -> Screen {
+        Screen(
+            frame: PixelRect(x: 0, y: 0, width: width, height: height),
+            visibleFrame: PixelRect(x: 0, y: 25, width: width, height: height - 25)
+        )
+    }
+
+    func screens() -> [Screen] {
+        stubbedScreens
+    }
+
+    func mouseLocation() -> PixelPoint {
+        PixelPoint(x: 0, y: 0)
     }
 }
 

@@ -7,9 +7,23 @@ import Testing
 @Suite @MainActor struct CollectionSettingsUseCaseTests {
     private let repository = InMemorySpaceCollectionRepository()
     private let preferences = InMemoryPreferencesRepository()
+    private let screens = StubScreenProvider(screens: [
+        StubScreenProvider.screen(width: 1920, height: 1080)
+    ])
 
     private var useCase: CollectionSettingsUseCase {
-        CollectionSettingsUseCase(repository: repository, preferences: preferences)
+        CollectionSettingsUseCase(
+            repository: repository, preferences: preferences, screens: screens)
+    }
+
+    private var standardPreset: SpaceCollection { repository.presetCollections[0] }
+    private var widePreset: SpaceCollection { repository.presetCollections[1] }
+
+    init() {
+        repository.presetCollections = [
+            PresetGenerator.generate(monitorCount: 1, monitorType: .standard),
+            PresetGenerator.generate(monitorCount: 1, monitorType: .wide),
+        ]
     }
 
     private func addCollection(name: String) throws -> SpaceCollection {
@@ -18,7 +32,7 @@ import Testing
 
     // MARK: - Listing
 
-    @Test func listsPresetsPlusCustomCollections() throws {
+    @Test func listsEveryPresetPlusCustomCollections() throws {
         let work = try addCollection(name: "Work")
         preferences.storedActiveCollectionId = work.id
 
@@ -26,9 +40,30 @@ import Testing
 
         #expect(
             entries == [
-                CollectionSettingsEntry(kind: .presets, name: "Presets", isActive: false),
+                CollectionSettingsEntry(
+                    kind: .preset(standardPreset.id), name: "1 Monitor - Standard",
+                    isActive: false),
+                CollectionSettingsEntry(
+                    kind: .preset(widePreset.id), name: "1 Monitor - Wide", isActive: false),
                 CollectionSettingsEntry(kind: .custom(work.id), name: "Work", isActive: true),
             ])
+    }
+
+    /// No stored selection: the default preset (classified off the primary
+    /// display) is the active row.
+    @Test func withNoSelectionTheDefaultPresetRowIsActive() {
+        let entries = useCase.entries()
+
+        #expect(entries.map(\.isActive) == [true, false])
+    }
+
+    /// The same list on an ultrawide primary marks the wide preset active.
+    @Test func theDefaultRowFollowsThePrimaryDisplayClass() {
+        screens.stubbedScreens = [StubScreenProvider.screen(width: 3440, height: 1440)]
+
+        let entries = useCase.entries()
+
+        #expect(entries.map(\.isActive) == [false, true])
     }
 
     // MARK: - Selection
@@ -42,16 +77,17 @@ import Testing
         #expect(preferences.storedActiveCollectionId == work.id)
     }
 
-    /// Selecting the presets row clears the stored id — "no selection" is
-    /// the presets-fallback state the panel resolves.
-    @Test func selectingPresetsClearsTheStoredId() throws {
-        let work = try addCollection(name: "Work")
-        preferences.storedActiveCollectionId = work.id
-
+    /// Selecting a preset stores its id exactly like a custom collection —
+    /// the explicit selection GNOME's preferences offer. This is how a
+    /// standard-primary setup gets the wide preset: the default would never
+    /// pick it, the user does.
+    @Test func selectingAPresetStoresItsId() {
         useCase.select(
-            CollectionSettingsEntry(kind: .presets, name: "Presets", isActive: false))
+            CollectionSettingsEntry(
+                kind: .preset(widePreset.id), name: "1 Monitor - Wide", isActive: false))
 
-        #expect(preferences.storedActiveCollectionId == nil)
+        #expect(preferences.storedActiveCollectionId == widePreset.id)
+        #expect(useCase.entries().map(\.isActive) == [false, true])
     }
 
     // MARK: - Deletion
@@ -65,9 +101,9 @@ import Testing
         #expect(repository.collections == [home])
     }
 
-    /// Deleting the active collection falls back to the presets, like the
-    /// GNOME preferences re-selecting its first preset after a delete.
-    @Test func deletingTheActiveCollectionFallsBackToPresets() throws {
+    /// Deleting the active collection falls back to the default preset,
+    /// like the GNOME preferences re-selecting a preset after a delete.
+    @Test func deletingTheActiveCollectionFallsBackToTheDefaultPreset() throws {
         let work = try addCollection(name: "Work")
         preferences.storedActiveCollectionId = work.id
 
