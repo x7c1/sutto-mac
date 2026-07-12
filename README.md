@@ -21,7 +21,7 @@ A window snapping app for macOS, bringing the [Sutto](https://github.com/x7c1/su
 | `make run`    | Build the bundle and (re)launch it, quitting any running instance                    |
 | `make clean`  | Remove the bundle and SwiftPM build artifacts                                        |
 
-The app lives in the menu bar (no Dock icon). During development the bundle is unsigned, so macOS treats every rebuilt binary as a new app: you have to grant (or re-grant) the Accessibility permission manually under System Settings › Privacy & Security › Accessibility. The onboarding window shown at first launch walks through this.
+The app lives in the menu bar (no Dock icon). During development the bundle is unsigned, so macOS treats every rebuilt binary as a new app: you have to grant (or re-grant) the Accessibility permission manually under System Settings › Privacy & Security › Accessibility. The onboarding window shown at first launch walks through this. To keep the permission across rebuilds, sign the bundle with a local self-signed certificate via `make run CODESIGN_IDENTITY="..."` — see [Keeping the Accessibility permission across rebuilds](docs/guides/debugging.md#keeping-the-accessibility-permission-across-rebuilds).
 
 To watch the app's logs while verifying behavior, see [Debugging and Logging](docs/guides/debugging.md).
 
