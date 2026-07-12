@@ -49,11 +49,12 @@ extension SpaceCollectionRepository {
         return collection
     }
 
-    /// Finds a custom collection by id. Mirrors `findCollectionById` in the
-    /// GNOME repository, restricted to custom collections: the mac active
-    /// selection only ever points at a custom collection (the presets are
-    /// the cleared-selection fallback, not an addressable choice).
-    public func findCustomCollection(by id: CollectionId) -> SpaceCollection? {
-        loadCustomCollections().first { $0.id == id }
+    /// Finds a collection by id across presets and customs, presets first.
+    /// Mirrors `findCollectionById` in the GNOME repository, which searches
+    /// `loadAllCollections()` (presets + customs) — the active selection can
+    /// name a generated preset just as well as an imported collection.
+    public func findCollection(by id: CollectionId) -> SpaceCollection? {
+        loadPresetCollections().first { $0.id == id }
+            ?? loadCustomCollections().first { $0.id == id }
     }
 }

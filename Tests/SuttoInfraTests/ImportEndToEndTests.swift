@@ -71,7 +71,8 @@ import Testing
         // "full".
         let settings = CollectionSettingsUseCase(
             repository: reopenedRepository,
-            preferences: reopenedPreferences
+            preferences: reopenedPreferences,
+            screens: screens
         )
         let importedEntry = try #require(
             settings.entries().first { $0.kind == .custom(imported.id) })

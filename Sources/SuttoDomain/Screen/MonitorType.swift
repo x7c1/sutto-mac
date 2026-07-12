@@ -6,9 +6,13 @@
 /// GNOME version generates presets of *both* types and lets the user pick
 /// one in preferences; its `preset-config.ts` documents the wide list as
 /// meant for aspect ratios ≥ 21:9 but never classifies a display itself.
-/// The mac app has a single "Presets" entry instead of a per-preset radio
-/// list, so it needs that documented rule as code: ``classify(width:height:)``
-/// turns the GNOME comment into the selection rule.
+/// The mac app offers the same explicit selection, so
+/// ``classify(width:height:)`` is deliberately **not** a selector: it only
+/// picks the *default* preset when nothing is selected
+/// (``PresetSelection``). Classification keys off the primary display,
+/// which a mixed setup (standard laptop primary + ultrawide secondary) can
+/// make "wrong" for the display actually worked on — explicit selection in
+/// settings is the answer there, exactly as in GNOME.
 public enum MonitorType: Equatable, Sendable {
     case standard
     case wide

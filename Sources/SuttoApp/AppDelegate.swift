@@ -88,7 +88,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let settings = SettingsWindowController(
             collections: CollectionSettingsUseCase(
                 repository: collections,
-                preferences: preferences
+                preferences: preferences,
+                screens: screens
             ),
             layoutImport: LayoutImportController(
                 importCollection: ImportCollectionUseCase(

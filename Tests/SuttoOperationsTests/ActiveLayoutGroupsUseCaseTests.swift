@@ -75,6 +75,37 @@ import Testing
         #expect(groups.map(\.name) == PresetConfiguration.wideLayoutGroupNames)
     }
 
+    /// An explicitly selected preset beats the default classification —
+    /// the laptop-plus-ultrawide case: the primary is standard, so the
+    /// default would be the standard preset, but the user selected the
+    /// wide one in settings.
+    @Test func showsAnExplicitlySelectedPresetOverTheDefault() {
+        storeSingleMonitorPresets()
+        let widePreset = repository.presetCollections[1]
+        preferences.storedActiveCollectionId = widePreset.id
+
+        let groups = makeUseCase().activeLayoutGroups()
+
+        #expect(groups.map(\.name) == PresetConfiguration.wideLayoutGroupNames)
+    }
+
+    /// A selected preset stays active even when the monitor count changed
+    /// since — the id still resolves, exactly like a GNOME
+    /// `findCollectionById` hit. Only a stale id falls back to the default.
+    @Test func aSelectedPresetSurvivesAMonitorCountChange() {
+        storeSingleMonitorPresets()
+        let widePreset = repository.presetCollections[1]
+        preferences.storedActiveCollectionId = widePreset.id
+        screens.stubbedScreens = [
+            StubScreenProvider.screen(width: 1920, height: 1080),
+            StubScreenProvider.screen(width: 1920, height: 1080),
+        ]
+
+        let groups = makeUseCase().activeLayoutGroups()
+
+        #expect(groups.map(\.name) == PresetConfiguration.wideLayoutGroupNames)
+    }
+
     /// A stale id (collection deleted or defaults carried over) also falls
     /// back, mirroring `getActiveSpaceCollection` falling back to a preset
     /// when the stored id resolves to nothing.
