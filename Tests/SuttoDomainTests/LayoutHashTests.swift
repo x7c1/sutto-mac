@@ -13,7 +13,7 @@ import Testing
 @Suite struct LayoutHashTests {
     /// (x, y, width, height) → expected hash, computed by the GNOME
     /// implementation. The first eight rows are the coordinates of every
-    /// built-in preset layout.
+    /// standard-preset layout.
     private static let pins: [(x: String, y: String, width: String, height: String, expected: String)] = [
         ("0", "0", "50%", "100%", "hash-e1d7a9be"),
         ("50%", "0", "50%", "100%", "hash-08b184c4"),

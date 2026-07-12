@@ -32,6 +32,15 @@ import Testing
             defaults.removePersistentDomain(forName: suiteName)
         }
 
+        let screens = SingleStandardScreenProvider()
+
+        // Generate the presets the way the app does at launch, into the
+        // same temp storage the import lands in.
+        PresetGeneratorUseCase(
+            repository: FileSpaceCollectionRepository(directory: directory),
+            screens: screens
+        ).ensurePresetsForCurrentMonitors()
+
         // Import through the same wiring the app composes in AppDelegate.
         let useCase = ImportCollectionUseCase(
             repository: FileSpaceCollectionRepository(directory: directory),
@@ -47,14 +56,15 @@ import Testing
         let activeGroups = ActiveLayoutGroupsUseCase(
             repository: reopenedRepository,
             preferences: reopenedPreferences,
-            presetGroups: BuiltInPresets.standardLayoutGroups
+            screens: screens
         )
 
         // Importing adds without activating (as in GNOME): the panel still
-        // shows the presets until the collection is selected in settings.
+        // shows the generated standard preset until the collection is
+        // selected in settings.
         #expect(
             activeGroups.activeLayoutGroups().map(\.name)
-                == BuiltInPresets.standardLayoutGroups.map(\.name))
+                == PresetConfiguration.standardLayoutGroupNames)
 
         // Selecting the imported collection in the settings list flips the
         // panel to it: the sample's two spaces project to "half split" and
@@ -76,5 +86,23 @@ import Testing
         // through the storage codec.
         #expect(reopenedRepository.loadCustomCollections() == [imported])
         #expect(reopenedPreferences.activeCollectionId() == imported.id)
+    }
+}
+
+/// A fixed single standard (16:9) display: the preset fallback then
+/// resolves "1 Monitor - Standard".
+@MainActor
+private struct SingleStandardScreenProvider: ScreenProviding {
+    func screens() -> [Screen] {
+        [
+            Screen(
+                frame: PixelRect(x: 0, y: 0, width: 1920, height: 1080),
+                visibleFrame: PixelRect(x: 0, y: 25, width: 1920, height: 1055)
+            )
+        ]
+    }
+
+    func mouseLocation() -> PixelPoint {
+        PixelPoint(x: 0, y: 0)
     }
 }

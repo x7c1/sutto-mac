@@ -10,9 +10,9 @@ import os
 /// list of preset + custom collections where selection is explicit, and
 /// deleting the active custom collection falls back to the presets. GNOME
 /// re-points the active id at its first preset collection in that case; the
-/// mac presets are not repository state yet, so the equivalent is clearing
-/// the stored id — ``ActiveLayoutGroupsUseCase`` then resolves to the
-/// built-in presets.
+/// mac active id only ever names a custom collection, so the equivalent is
+/// clearing the stored id — ``ActiveLayoutGroupsUseCase`` then resolves to
+/// the generated preset for the current monitors.
 @MainActor
 public final class CollectionSettingsUseCase {
     private let repository: any SpaceCollectionRepository

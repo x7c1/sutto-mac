@@ -1,6 +1,6 @@
 /// One row of the settings window's collection list.
 public struct CollectionSettingsEntry: Equatable, Sendable {
-    /// What the row stands for: the built-in presets, or one imported
+    /// What the row stands for: the generated presets, or one imported
     /// custom collection.
     public enum Kind: Equatable, Sendable {
         case presets
@@ -28,18 +28,22 @@ public struct CollectionSettingsEntry: Equatable, Sendable {
 ///
 /// Mirrors the list pane of the GNOME preferences (`prefs/spaces-page.ts`),
 /// which shows a Preset section above a Custom section with a radio per
-/// collection. The mac v0.2 presets are a single built-in constant rather
-/// than repository state (the preset generator is not ported yet), so the
-/// preset section collapses to one fixed "Presets" row.
+/// collection. The mac v0.2 keeps a single "Presets" row instead of a row
+/// per generated preset: selecting it clears the stored id, and the panel
+/// resolves the preset matching the current monitor configuration (the
+/// `ActiveLayoutGroupsUseCase` fallback in the operations layer) —
+/// per-preset rows can arrive with a fuller settings screen if explicit
+/// preset selection turns out to matter.
 ///
 /// Active resolution matches ``ActiveLayoutGroupsUseCase`` (and the GNOME
 /// `getActiveSpaceCollection`): a stored id that no longer matches any
 /// custom collection degrades to the presets, so the row marked active here
 /// is always the collection the panel actually shows.
 public enum CollectionSettingsList {
-    /// The name of the built-in presets row. The GNOME list titles its
-    /// preset section "Preset" and lists generated collections under it;
-    /// with a single built-in set, the section title *is* the row.
+    /// The name of the presets row. The GNOME list titles its preset
+    /// section "Preset" and lists generated collections under it; with a
+    /// single row standing for the generated presets, the section title
+    /// *is* the row.
     public static let presetsEntryName = "Presets"
 
     public static func entries(
