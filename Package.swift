@@ -44,9 +44,13 @@ let package = Package(
             dependencies: ["SuttoUI", "SuttoInfra", "SuttoOperations", "SuttoDomain"]
         ),
 
+        // Fixtures/ holds real sample collection JSON vendored from the
+        // GNOME version's docs/examples/, used to pin cross-OS schema
+        // compatibility — see LayoutConfigurationCodecTests.
         .testTarget(
             name: "SuttoDomainTests",
-            dependencies: ["SuttoDomain"]
+            dependencies: ["SuttoDomain"],
+            resources: [.copy("Fixtures")]
         ),
 
         .testTarget(
