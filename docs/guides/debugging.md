@@ -93,12 +93,12 @@ distribution signing or notarization.
 
 ### Usage
 
-Recommended: create a git-ignored `Local.mk` next to the `Makefile` (it is
+Recommended: create a git-ignored `local.mk` next to the `Makefile` (it is
 `-include`d automatically), so every build in this checkout signs — no
 matter which shell, tool, or agent runs `make`:
 
 ```make
-# Local.mk — per-machine settings, not committed
+# local.mk — per-machine settings, not committed
 CODESIGN_IDENTITY := Sutto Dev
 ```
 
@@ -106,7 +106,7 @@ Alternatively pass the variable per invocation
 (`make run CODESIGN_IDENTITY="Sutto Dev"`) or export it in your shell
 profile — but note both of those silently stop applying in shells without
 the export (a fresh terminal, another tool's shell), and every unsigned
-build you launch re-triggers the permission dance. `Local.mk` avoids that
+build you launch re-triggers the permission dance. `local.mk` avoids that
 failure mode.
 
 The first signed build still needs one manual grant under System Settings ›
