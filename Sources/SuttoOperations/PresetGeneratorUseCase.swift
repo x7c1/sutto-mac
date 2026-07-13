@@ -16,10 +16,13 @@ import os
 /// opens.
 ///
 /// The GNOME version prefers a persisted monitor count (its
-/// `MonitorCountRepository`, fed by the monitor-environment storage) over
-/// live detection; that storage arrives with v0.3 (Monitor Environment),
-/// so the mac v0.2 counts the live ``ScreenProviding`` screens directly —
-/// the detection fallback of the GNOME implementation.
+/// `MonitorCountRepository`, reading the current environment out of the
+/// monitor-environment storage) over live detection, because its
+/// preferences process cannot reach the shell's display. The mac app is a
+/// single process whose environment storage is refreshed from the live
+/// screens on every change notification, so counting the live
+/// ``ScreenProviding`` screens directly is the same number without the
+/// file read — the detection fallback of the GNOME implementation.
 @MainActor
 public final class PresetGeneratorUseCase {
     private let repository: any SpaceCollectionRepository

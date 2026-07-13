@@ -84,6 +84,25 @@ final class InMemoryPreferencesRepository: PreferencesRepository {
     }
 }
 
+/// In-memory ``MonitorEnvironmentRepository`` for use-case tests: keeps
+/// the saved storage inspectable, and saves can be scripted to fail.
+@MainActor
+final class InMemoryMonitorEnvironmentRepository: MonitorEnvironmentRepository {
+    var storedStorage: MonitorEnvironmentStorage?
+    var saveError: Error?
+
+    func load() -> MonitorEnvironmentStorage? {
+        storedStorage
+    }
+
+    func save(_ storage: MonitorEnvironmentStorage) throws {
+        if let saveError {
+            throw saveError
+        }
+        storedStorage = storage
+    }
+}
+
 /// ``FileReading`` stub serving canned data or a canned failure.
 @MainActor
 struct StubFileReader: FileReading {

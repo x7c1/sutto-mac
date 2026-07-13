@@ -20,16 +20,19 @@ public final class CollectionSettingsUseCase {
     private let repository: any SpaceCollectionRepository
     private let preferences: any PreferencesRepository
     private let screens: any ScreenProviding
+    private let environment: MonitorEnvironmentUseCase
     private let logger = Logger(subsystem: "io.github.x7c1.SuttoMac", category: "settings")
 
     public init(
         repository: any SpaceCollectionRepository,
         preferences: any PreferencesRepository,
-        screens: any ScreenProviding
+        screens: any ScreenProviding,
+        environment: MonitorEnvironmentUseCase
     ) {
         self.repository = repository
         self.preferences = preferences
         self.screens = screens
+        self.environment = environment
     }
 
     /// The rows the settings list shows, presets first, exactly one active.
@@ -48,11 +51,14 @@ public final class CollectionSettingsUseCase {
 
     /// Makes `entry` the active collection by storing its id — preset and
     /// custom rows alike, matching the GNOME preferences where activating
-    /// any radio persists that collection's id.
+    /// any radio persists that collection's id. The selection is also
+    /// recorded against the *current monitor environment*, so returning to
+    /// this display setup later restores it automatically.
     public func select(_ entry: CollectionSettingsEntry) {
         switch entry.kind {
         case .preset(let id), .custom(let id):
             preferences.setActiveCollectionId(id)
+            environment.recordActiveCollection(id)
             logger.info("active collection selected: \(id.description, privacy: .public)")
         }
     }
@@ -73,6 +79,10 @@ public final class CollectionSettingsUseCase {
 
         if preferences.activeCollectionId() == id {
             preferences.setActiveCollectionId(nil)
+            // The current environment's memory of the deleted collection
+            // goes too, so returning to this setup later does not restore
+            // a dead id.
+            environment.recordActiveCollection(nil)
         }
         logger.info("deleted custom collection \"\(deleted.name, privacy: .public)\"")
     }

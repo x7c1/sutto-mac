@@ -61,6 +61,16 @@ public final class SettingsWindowController {
         window.makeKeyAndOrderFront(nil)
     }
 
+    /// Re-renders the collection list if the window is on screen — called
+    /// when the monitor environment switches, so the radio selection
+    /// reflects the restored collection without reopening the window. The
+    /// GNOME preferences reload the same way when the extension repoints
+    /// the active id.
+    public func refreshIfVisible() {
+        guard window?.isVisible == true else { return }
+        refresh()
+    }
+
     // MARK: - Actions
 
     @objc private func collectionSelected(_ sender: NSButton) {

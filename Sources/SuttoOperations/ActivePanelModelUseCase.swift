@@ -22,24 +22,37 @@ public final class ActivePanelModelUseCase {
     private let repository: any SpaceCollectionRepository
     private let preferences: any PreferencesRepository
     private let screens: any ScreenProviding
+    private let environment: MonitorEnvironmentUseCase
 
     public init(
         repository: any SpaceCollectionRepository,
         preferences: any PreferencesRepository,
-        screens: any ScreenProviding
+        screens: any ScreenProviding,
+        environment: MonitorEnvironmentUseCase
     ) {
         self.repository = repository
         self.preferences = preferences
         self.screens = screens
+        self.environment = environment
     }
 
     /// The model the panel should render right now. Empty (no rows) when
     /// no collection resolves or every space is disabled.
+    ///
+    /// The stored monitor environments feed the rendering the way the
+    /// GNOME panel consults `getMonitorsForRendering`: a collection made
+    /// for more displays than are connected renders with the real
+    /// geometry that setup had when last seen, disconnected displays
+    /// dimmed.
     public func panelModel() -> MiniaturePanelModel {
         guard let collection = activeCollection() else {
             return MiniaturePanelModel(rows: [])
         }
-        return MiniaturePanelModel.make(collection: collection, screens: screens.screens())
+        return MiniaturePanelModel.make(
+            collection: collection,
+            screens: screens.screens(),
+            environments: environment.storedEnvironments()
+        )
     }
 
     private func activeCollection() -> SpaceCollection? {
