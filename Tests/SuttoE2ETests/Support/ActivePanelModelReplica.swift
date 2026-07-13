@@ -44,8 +44,11 @@ enum ActivePanelModelReplica {
 
     /// `ActivePanelModelUseCase.activeCollection()`, replicated: the stored
     /// id across presets and customs, else the default preset for the
-    /// current screens.
-    private static func activeCollection(screens: [Screen]) -> SpaceCollection? {
+    /// current screens. Internal (not private) because the space-toggle
+    /// scenario needs the ids of the collection the app shows — the raw
+    /// collection, disabled spaces included, where `panelModel` filters
+    /// them the way the panel does.
+    static func activeCollection(screens: [Screen]) -> SpaceCollection? {
         let presets = loadCollections(named: "preset-space-collections.sutto.json")
         if let id = activeCollectionId() {
             let customs = loadCollections(named: "custom-space-collections.sutto.json")

@@ -64,15 +64,25 @@ distribution signing or notarization.
    - **Certificate Type**: `Code Signing`.
 4. Click **Create**, then **Done**. The certificate lands in your login
    keychain.
-5. Verify that `codesign` can see it:
+5. **Mark it trusted** — on current macOS the assistant does NOT auto-trust
+   self-signed certificates, so the identity stays invalid
+   (`CSSMERR_TP_NOT_TRUSTED`) until you do this: double-click the
+   certificate in Keychain Access, expand **Trust**, set **When using this
+   certificate** to **Always Trust**, and close the window (you will be
+   asked for your password).
+6. Verify that `codesign` sees exactly one VALID identity:
 
    ```sh
-   security find-identity -p codesigning
+   security find-identity -p codesigning -v
    ```
 
-   The output should list `"Sutto Dev"`. If the identity is reported as not
-   trusted, open the certificate in Keychain Access, expand **Trust**, and
-   set **Code Signing** to **Always Trust**.
+   The output must say `1 valid identities found` with `"Sutto Dev"`.
+   Gotchas seen in practice:
+   - `0 valid identities found` but the plain (non-`-v`) listing shows the
+     certificate with `CSSMERR_TP_NOT_TRUSTED` → step 5 was skipped.
+   - Two `"Sutto Dev"` entries (the assistant was run twice) → `codesign`
+     will refuse the name as ambiguous; delete one of the duplicates in
+     Keychain Access.
 
 ### Usage
 

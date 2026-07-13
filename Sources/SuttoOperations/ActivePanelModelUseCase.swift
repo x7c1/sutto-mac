@@ -56,15 +56,9 @@ public final class ActivePanelModelUseCase {
     }
 
     private func activeCollection() -> SpaceCollection? {
-        guard
-            let id = preferences.activeCollectionId(),
-            let collection = repository.findCollection(by: id)
-        else {
-            return PresetSelection.defaultPreset(
-                in: repository.loadPresetCollections(),
-                screens: screens.screens()
-            )
-        }
-        return collection
+        repository.activeCollection(
+            activeId: preferences.activeCollectionId(),
+            screens: screens.screens()
+        )
     }
 }

@@ -182,7 +182,10 @@ public struct MiniaturePanelModel: Equatable, Sendable {
 
     /// Builds one space's miniature: the GNOME `createMiniatureSpaceView` +
     /// `calculateSpaceDimensions` math, on top-left-origin display frames.
-    private static func miniature(
+    /// Internal rather than private because ``SpacePreviewModel`` builds the
+    /// settings preview from the same geometry — the two surfaces must
+    /// render identical miniatures.
+    static func miniature(
         for space: Space, arrangement: PanelDisplayArrangement
     ) -> SpaceMiniature {
         let displays = arrangement.displays

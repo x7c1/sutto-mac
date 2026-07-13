@@ -5,12 +5,13 @@ import SuttoDomain
 /// file-based storage.
 ///
 /// Mirrors `SpaceCollectionRepository` in
-/// `operations/layout/space-collection-repository.ts` of the GNOME version,
-/// reduced to the slice v0.2 needs: preset and custom collections live in
-/// separate documents (the GNOME preset/custom file pair), presets written
-/// only by the preset generator, customs only by the importer. The GNOME
-/// interface additionally covers per-space enablement updates; those arrive
-/// with the settings-screen work.
+/// `operations/layout/space-collection-repository.ts` of the GNOME version:
+/// preset and custom collections live in separate documents (the GNOME
+/// preset/custom file pair), presets written only by the preset generator,
+/// customs only by the importer — with one exception: the settings
+/// window's per-space toggle rewrites whichever file holds the space
+/// (``updateSpaceEnabled(collectionId:spaceId:enabled:)``), presets
+/// included, exactly like the GNOME `updateSpaceEnabled`.
 ///
 /// Isolated to the main actor like the other operations protocols: every
 /// caller is a user-gesture-driven UI flow, and the collection files are
@@ -56,5 +57,51 @@ extension SpaceCollectionRepository {
     public func findCollection(by id: CollectionId) -> SpaceCollection? {
         loadPresetCollections().first { $0.id == id }
             ?? loadCustomCollections().first { $0.id == id }
+    }
+
+    /// Resolves the collection the panel shows right now: `activeId` when
+    /// it names a stored collection — preset or custom — otherwise the
+    /// default preset for the connected screens. The resolution chain of
+    /// the GNOME `getActiveSpaceCollection`, shared by the panel
+    /// (`ActivePanelModelUseCase`) and the settings preview so both always
+    /// show the same collection.
+    public func activeCollection(activeId: CollectionId?, screens: [Screen]) -> SpaceCollection? {
+        if let activeId, let collection = findCollection(by: activeId) {
+            return collection
+        }
+        return PresetSelection.defaultPreset(in: loadPresetCollections(), screens: screens)
+    }
+
+    /// Persists a space's `enabled` flag, searching the presets first and
+    /// the customs second and rewriting whichever file held the space —
+    /// the GNOME `updateSpaceEnabled` of the `FileSpaceCollectionRepository`
+    /// persists toggles on generated presets and imported customs the same
+    /// way.
+    ///
+    /// - Returns: `false` when no stored collection holds the space (the
+    ///   GNOME method logs and returns `false`); the caller decides whether
+    ///   that is worth surfacing.
+    @discardableResult
+    public func updateSpaceEnabled(
+        collectionId: CollectionId, spaceId: SpaceId, enabled: Bool
+    ) throws -> Bool {
+        var presets = loadPresetCollections()
+        if let index = presets.firstIndex(where: { $0.id == collectionId }),
+            let updated = presets[index].updatingSpace(spaceId, enabled: enabled)
+        {
+            presets[index] = updated
+            try savePresetCollections(presets)
+            return true
+        }
+
+        var customs = loadCustomCollections()
+        if let index = customs.firstIndex(where: { $0.id == collectionId }),
+            let updated = customs[index].updatingSpace(spaceId, enabled: enabled)
+        {
+            customs[index] = updated
+            try saveCustomCollections(customs)
+            return true
+        }
+        return false
     }
 }

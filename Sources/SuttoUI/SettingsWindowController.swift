@@ -3,15 +3,20 @@ import SuttoDomain
 import SuttoOperations
 
 /// The settings window: a Collections section (select the active
-/// collection, import, delete) and a Shortcuts section (capture the
-/// panel-toggle combo, reset it to the default).
+/// collection, import, delete, and preview the selected collection's
+/// spaces with click-to-toggle visibility) and a Shortcuts section
+/// (capture the panel-toggle combo, reset it to the default).
 ///
 /// The window itself stays thin: list composition and active marking come
-/// from ``SuttoOperations/CollectionSettingsUseCase``, capture validation
+/// from ``SuttoOperations/CollectionSettingsUseCase`` (which also derives
+/// the preview geometry and persists the toggles), capture validation
 /// from ``SuttoDomain/ShortcutCapturePolicy``, and live shortcut
 /// re-registration from ``SuttoOperations/PanelShortcutUseCase``. The GNOME
-/// counterpart is the preferences window (`prefs/preferences.ts`), reduced
-/// to the sections v0.2 has — no space previews or per-space toggles yet.
+/// counterpart is the preferences window (`prefs/preferences.ts`): its
+/// Spaces page puts the collection list and the space preview side by
+/// side, and this window keeps that arrangement — list on the left,
+/// preview on the right of a vertical separator — inside the Collections
+/// section of the existing single-page layout.
 ///
 /// There is a single instance wired by the composition root; `present()`
 /// shows the existing window (or focuses it) rather than opening a second
@@ -25,6 +30,7 @@ public final class SettingsWindowController {
     private var window: NSWindow?
     private var rootStack: NSStackView?
     private var collectionRowsStack: NSStackView?
+    private var previewStack: NSStackView?
     private var captureField: ShortcutCaptureField?
     private var resetButton: NSButton?
 
@@ -135,12 +141,27 @@ public final class SettingsWindowController {
         refresh()
     }
 
+    private func spaceToggled(collectionId: CollectionId, spaceId: SpaceId) {
+        do {
+            try collections.toggleSpace(collectionId: collectionId, spaceId: spaceId)
+        } catch {
+            presentFailure(
+                title: "Toggle Failed",
+                message: "The space's visibility could not be saved. \(error.localizedDescription)"
+            )
+        }
+        // Re-derives the preview from what was actually persisted, so the
+        // dimming can never drift from the stored state.
+        refresh()
+    }
+
     // MARK: - Rendering
 
     /// Re-renders everything that shows state: the collection rows, the
-    /// capture field, and the Reset button. Rebuilding the rows outright
-    /// keeps radio states, delete buttons, and tags trivially consistent
-    /// with `entries`.
+    /// space preview, the capture field, and the Reset button. Rebuilding
+    /// the rows and the preview outright keeps radio states, delete
+    /// buttons, tags, and toggle dimming trivially consistent with the
+    /// repository.
     private func refresh() {
         guard let collectionRowsStack, let window, let rootStack else { return }
 
@@ -158,12 +179,54 @@ public final class SettingsWindowController {
             collectionRowsStack.addArrangedSubview(makeRow(for: entry, at: index))
         }
 
+        rebuildPreview()
+
         captureField?.combo = shortcut.currentCombo()
         resetButton?.isEnabled = !shortcut.isDefault()
 
-        // The row count changes with imports/deletions and the window is
-        // not user-resizable, so fit the frame to the content each time.
+        // The content changes with imports/deletions/selection (the
+        // preview resizes with the selected collection) and the window is
+        // not user-resizable, so fit the frame to the content each time —
+        // the GNOME preferences grow their window for larger collections
+        // the same way (`expandSizeIfNeeded`).
         window.setContentSize(rootStack.fittingSize)
+    }
+
+    /// Rebuilds the space preview for the active collection: one miniature
+    /// per space — disabled ones dimmed — arranged in the collection's own
+    /// rows, exactly like the panel. Space numbering is continuous across
+    /// rows (reading order), matching the panel's accessibility labels.
+    private func rebuildPreview() {
+        guard let previewStack else { return }
+        previewStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+
+        guard let model = collections.previewModel(), !model.rows.isEmpty else {
+            // Nothing to preview: an empty collection (the GNOME preview's
+            // "No spaces in this collection" label) — or, in theory, no
+            // resolvable collection at all, which reads the same.
+            let empty = NSTextField(labelWithString: "No spaces in this collection")
+            empty.textColor = .secondaryLabelColor
+            empty.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+            previewStack.addArrangedSubview(empty)
+            return
+        }
+
+        var spaceIndex = 0
+        for row in model.rows {
+            let toggles = row.spaces.map { entry -> NSView in
+                let toggle = SpaceToggleButton(entry: entry, index: spaceIndex) {
+                    [weak self] spaceId in
+                    self?.spaceToggled(collectionId: model.collectionId, spaceId: spaceId)
+                }
+                spaceIndex += 1
+                return toggle
+            }
+            let rowStack = NSStackView(views: toggles)
+            rowStack.orientation = .horizontal
+            rowStack.alignment = .top
+            rowStack.spacing = MiniaturePanelModel.Metrics.spaceSpacing
+            previewStack.addArrangedSubview(rowStack)
+        }
     }
 
     private func makeRow(for entry: CollectionSettingsEntry, at index: Int) -> NSView {
@@ -226,9 +289,12 @@ public final class SettingsWindowController {
         window.isReleasedWhenClosed = false
 
         let collectionsHeader = makeSectionHeader("Collections")
+        // The GNOME group description: "Select a collection to use. Click
+        // spaces in the preview to toggle visibility."
         let collectionsHint = NSTextField(
             wrappingLabelWithString:
-                "The selected collection provides the layouts the panel shows."
+                "The selected collection provides the layouts the panel shows. "
+                + "Click a space in the preview to toggle its visibility."
         )
         collectionsHint.textColor = .secondaryLabelColor
         collectionsHint.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
@@ -245,6 +311,34 @@ public final class SettingsWindowController {
             target: self,
             action: #selector(importLayouts)
         )
+
+        // List | separator | preview, the GNOME Spaces page's split pane
+        // (`createSpacesPage`: list pane, vertical separator, scrolled
+        // preview) — flattened into the section, without scrolling: the
+        // window sizes itself to the content instead.
+        let listColumn = NSStackView(views: [rowsStack, importButton])
+        listColumn.orientation = .vertical
+        listColumn.alignment = .leading
+        listColumn.spacing = 12
+
+        let preview = NSStackView(views: [])
+        preview.orientation = .vertical
+        preview.alignment = .leading
+        preview.spacing = MiniaturePanelModel.Metrics.rowSpacing
+        previewStack = preview
+
+        let verticalSeparator = makeVerticalSeparator()
+        let collectionsBody = NSStackView(views: [
+            listColumn, verticalSeparator, preview,
+        ])
+        collectionsBody.orientation = .horizontal
+        collectionsBody.alignment = .top
+        collectionsBody.spacing = 16
+        // .top alignment leaves the separator's length undefined; run it
+        // the full height of whichever column is taller.
+        verticalSeparator.heightAnchor.constraint(
+            equalTo: collectionsBody.heightAnchor
+        ).isActive = true
 
         let shortcutsHeader = makeSectionHeader("Shortcuts")
 
@@ -268,14 +362,14 @@ public final class SettingsWindowController {
         shortcutRow.spacing = 8
 
         let stack = NSStackView(views: [
-            collectionsHeader, collectionsHint, rowsStack, importButton,
+            collectionsHeader, collectionsHint, collectionsBody,
             makeSeparator(),
             shortcutsHeader, shortcutRow,
         ])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 12
-        stack.setCustomSpacing(16, after: importButton)
+        stack.setCustomSpacing(16, after: collectionsBody)
         stack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
         rootStack = stack
 
@@ -294,6 +388,18 @@ public final class SettingsWindowController {
         separator.boxType = .separator
         separator.translatesAutoresizingMaskIntoConstraints = false
         separator.widthAnchor.constraint(greaterThanOrEqualToConstant: 380).isActive = true
+        return separator
+    }
+
+    /// The vertical rule between the collection list and the space preview
+    /// (the GNOME Spaces page's `Gtk.Separator`). NSBox draws a separator
+    /// along its longer side, so a fixed 1-point width with a stretchable
+    /// height keeps it vertical; the height rides the preview's.
+    private func makeVerticalSeparator() -> NSView {
+        let separator = NSBox()
+        separator.boxType = .separator
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        separator.widthAnchor.constraint(equalToConstant: 1).isActive = true
         return separator
     }
 }
