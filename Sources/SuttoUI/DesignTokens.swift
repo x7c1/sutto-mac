@@ -103,6 +103,14 @@ enum PanelPalette {
     /// Opacity for displays that are not connected right now, mirroring
     /// `INACTIVE_OPACITY` (100/255) in the GNOME miniature display.
     static let disconnectedAlpha: CGFloat = 0.4
+
+    /// The footer's text and gear icon color (GNOME `FOOTER_TEXT_COLOR`,
+    /// rgba(255,255,255,0.5)).
+    static let footerText = NSColor.white.withAlphaComponent(0.5)
+
+    /// The gear button's fill while hovered (GNOME's enter-event style,
+    /// rgba(255,255,255,0.1)).
+    static let footerButtonHoverBackground = NSColor.white.withAlphaComponent(0.1)
 }
 
 /// Panel dimensions that are purely visual (radii, borders, fonts, badge
@@ -164,6 +172,31 @@ enum PanelMetrics {
     /// The "No spaces available" empty-state label's font size (GNOME
     /// renders it at 14px; 13 is the mac body size).
     static let emptyLabelFontSize: CGFloat = 13
+
+    /// Gap between the last space row and the footer (GNOME
+    /// `FOOTER_MARGIN_TOP`) — tighter than the row spacing, so the footer
+    /// reads as the panel's rim rather than another row.
+    static let footerMarginTop: CGFloat = 3
+
+    /// The footer label's font size (GNOME renders "Powered by Sutto" at
+    /// 12px).
+    static let footerLabelFontSize: CGFloat = 12
+
+    /// The footer's fixed height (GNOME estimates its footer at ~20px:
+    /// the 16px icon plus the button's vertical padding).
+    static let footerHeight: CGFloat = 20
+
+    /// The settings gear icon's point size (GNOME `SETTINGS_ICON_SIZE`).
+    static let footerIconSize: CGFloat = 16
+
+    /// The gear button's padding around the icon (GNOME
+    /// `SETTINGS_PADDING_HORIZONTAL`/`_VERTICAL`, 4px and 2px).
+    static let footerButtonHorizontalPadding: CGFloat = 4
+    static let footerButtonVerticalPadding: CGFloat = 2
+
+    /// The gear button's hover-fill corner radius (GNOME
+    /// `SETTINGS_BORDER_RADIUS`).
+    static let footerButtonCornerRadius: CGFloat = 4
 }
 
 /// Spacing and control sizing for the settings window, on the HIG's

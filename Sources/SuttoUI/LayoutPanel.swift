@@ -283,7 +283,61 @@ public final class LayoutPanel {
         stack.spacing = MiniaturePanelModel.Metrics.rowSpacing
         let inset = MiniaturePanelModel.Metrics.contentInset
         stack.edgeInsets = NSEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
+
+        // The footer bar under the rows — GNOME's `createFooter`, shown in
+        // the empty state too (the GNOME container always appends it after
+        // the rows element). Its custom top gap is the GNOME footer margin,
+        // tighter than the row spacing; pinning the trailing edge stretches
+        // the footer to the width of the widest row, so the label centering
+        // and the right-aligned gear span the whole panel.
+        if let lastView = stack.arrangedSubviews.last {
+            stack.setCustomSpacing(PanelMetrics.footerMarginTop, after: lastView)
+        }
+        let footer = makeFooter()
+        stack.addArrangedSubview(footer)
+        footer.trailingAnchor.constraint(
+            equalTo: stack.trailingAnchor, constant: -inset
+        ).isActive = true
         return stack
+    }
+
+    /// The footer: a centered app-name label and a right-aligned settings
+    /// gear (the GNOME footer's spacer/label/button row; AppKit centers
+    /// the label absolutely, so no balancing left spacer is needed).
+    ///
+    /// The gear is deliberately *not* part of the keyboard navigation:
+    /// the GNOME navigator traverses only the layout buttons, and the
+    /// settings shortcut (⌘,) already covers the keyboard path — the
+    /// gear mirrors that and stays mouse-only.
+    private func makeFooter() -> NSView {
+        let footer = NSView()
+        footer.translatesAutoresizingMaskIntoConstraints = false
+
+        let label = NSTextField(labelWithString: "Sutto")
+        label.font = .systemFont(ofSize: PanelMetrics.footerLabelFontSize)
+        label.textColor = PanelPalette.footerText
+        label.translatesAutoresizingMaskIntoConstraints = false
+        // Decorative branding; the panel window is already named.
+        label.setAccessibilityElement(false)
+
+        let gear = FooterSettingsButton { [weak self] in
+            // The GNOME gear opens preferences and hides in the same
+            // gesture (`openPreferences(); hide()`) — the exact pairing of
+            // the ⌘, path, including landing on the last-used tab.
+            self?.hide()
+            self?.onOpenSettings?()
+        }
+
+        footer.addSubview(label)
+        footer.addSubview(gear)
+        NSLayoutConstraint.activate([
+            footer.heightAnchor.constraint(equalToConstant: PanelMetrics.footerHeight),
+            label.centerXAnchor.constraint(equalTo: footer.centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
+            gear.trailingAnchor.constraint(equalTo: footer.trailingAnchor),
+            gear.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
+        ])
+        return footer
     }
 
     /// Indexes a space miniature's region buttons by navigator coordinate,
@@ -430,6 +484,101 @@ public final class LayoutPanel {
             NSEvent.removeMonitor(monitor)
         }
         mouseMonitors = []
+    }
+}
+
+/// The footer's settings gear: a template SF Symbol tinted with the
+/// footer text color, with the GNOME gear's hover fill (a faint rounded
+/// highlight). The AppKit counterpart of the `sutto-settings-icon` button
+/// in the GNOME `createFooter` — `gearshape` standing in for
+/// `preferences-system-symbolic`.
+///
+/// Exposed to accessibility as a button titled "Settings" so the e2e
+/// harness (and VoiceOver) can find and press it.
+private final class FooterSettingsButton: NSButton {
+    private let onClick: () -> Void
+    private var isHovered = false
+
+    init(onClick: @escaping () -> Void) {
+        self.onClick = onClick
+        super.init(frame: .zero)
+
+        isBordered = false
+        setButtonType(.momentaryChange)
+        if let gear = NSImage(
+            systemSymbolName: "gearshape",
+            accessibilityDescription: "Settings"
+        ) {
+            gear.isTemplate = true
+            image = gear.withSymbolConfiguration(
+                NSImage.SymbolConfiguration(
+                    pointSize: PanelMetrics.footerIconSize, weight: .regular))
+        }
+        contentTintColor = PanelPalette.footerText
+        toolTip = "Settings"
+
+        wantsLayer = true
+        layer?.cornerRadius = PanelMetrics.footerButtonCornerRadius
+
+        translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(
+                equalToConstant: PanelMetrics.footerIconSize
+                    + PanelMetrics.footerButtonHorizontalPadding * 2),
+            heightAnchor.constraint(
+                equalToConstant: PanelMetrics.footerIconSize
+                    + PanelMetrics.footerButtonVerticalPadding * 2),
+        ])
+
+        target = self
+        action = #selector(clicked)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("FooterSettingsButton does not support NSCoder")
+    }
+
+    /// The title the harness looks up; the visible button is icon-only.
+    override func accessibilityTitle() -> String? {
+        "Settings"
+    }
+
+    // MARK: - Hover feedback
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas where area.owner === self {
+            removeTrackingArea(area)
+        }
+        addTrackingArea(
+            NSTrackingArea(
+                rect: .zero,
+                options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            ))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        applyStyle()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        applyStyle()
+    }
+
+    private func applyStyle() {
+        layer?.backgroundColor =
+            isHovered
+            ? PanelPalette.footerButtonHoverBackground.cgColor
+            : NSColor.clear.cgColor
+    }
+
+    @objc private func clicked() {
+        onClick()
     }
 }
 
