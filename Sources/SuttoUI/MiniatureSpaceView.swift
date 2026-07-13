@@ -1,6 +1,27 @@
 import AppKit
 import SuttoDomain
 
+/// Rounds a model rect to whole-point *edges* for rendering. The domain
+/// geometry is exact and stays that way; only the views snap to the pixel
+/// grid, and they must all snap the same way —
+/// rounding each edge (rather than origin and size independently) keeps
+/// adjacent regions seamless and, crucially, lands the rightmost/bottom
+/// region edge exactly on the display miniature's own rounded edge.
+///
+/// Without this, the scaled geometry is fractional (a 1920x1080 display
+/// scales to a 177.78pt-wide miniature), so a 1px region border on the
+/// display's far edge rasterizes into two half-covered pixel columns and
+/// the display's `masksToBounds` cuts the outer one at the fractional
+/// boundary — the right border faded to near-invisible while the left
+/// border, at integral x = 0, stayed crisp.
+private func integralEdges(_ rect: PixelRect) -> NSRect {
+    let x = rect.x.rounded()
+    let y = rect.y.rounded()
+    let maxX = rect.maxX.rounded()
+    let maxY = rect.maxY.rounded()
+    return NSRect(x: x, y: y, width: maxX - x, height: maxY - y)
+}
+
 /// One space's miniature: all displays in their physical arrangement, as
 /// computed by ``SuttoDomain/MiniaturePanelModel``. The AppKit counterpart
 /// of the GNOME `createMiniatureSpaceView`.
@@ -81,10 +102,10 @@ final class MiniatureDisplayView: NSView {
                 onClick: onRegionClicked
             )
         }
-        super.init(
-            frame: NSRect(
-                x: display.frame.x, y: display.frame.y,
-                width: display.frame.width, height: display.frame.height))
+        // Pixel-aligned like the regions inside (see `integralEdges`): the
+        // display's mask edge and the outermost regions' edges must land
+        // on the same whole-point grid or the mask clips their borders.
+        super.init(frame: integralEdges(display.frame))
         wantsLayer = true
         layer?.backgroundColor = PanelPalette.displayBackground.cgColor
         layer?.cornerRadius = PanelMetrics.displayCornerRadius
@@ -102,7 +123,7 @@ final class MiniatureDisplayView: NSView {
             let strip = NSView(
                 frame: NSRect(
                     x: 0, y: 0,
-                    width: display.frame.width,
+                    width: frame.width,  // the pixel-aligned width, not the model's
                     height: PanelMetrics.menuBarStripHeight))
             strip.wantsLayer = true
             strip.layer?.backgroundColor = PanelPalette.menuBarStrip.cgColor
@@ -218,10 +239,10 @@ final class LayoutRegionButton: NSButton {
         self.layout = region.layout
         self.displayKey = displayKey
         self.onClick = onClick
-        super.init(
-            frame: NSRect(
-                x: region.frame.x, y: region.frame.y,
-                width: region.frame.width, height: region.frame.height))
+        // Pixel-aligned edges (see `integralEdges`): a fractional frame
+        // renders the 1px border half-covered, and on the display's far
+        // edges the mask then swallows it entirely.
+        super.init(frame: integralEdges(region.frame))
 
         isBordered = false
         setButtonType(.momentaryChange)
