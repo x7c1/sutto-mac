@@ -3,6 +3,11 @@ CONFIG ?= release
 BINARY := .build/$(CONFIG)/$(APP_NAME)
 BUNDLE := .build/$(APP_NAME).app
 
+# Optional, git-ignored per-machine settings (e.g. CODESIGN_IDENTITY).
+# More robust than a shell-profile export: it applies to every invocation
+# in this checkout, including builds run by tools and agents.
+-include Local.mk
+
 # With Command Line Tools only, SwiftPM needs explicit flags to find Swift
 # Testing (empty with full Xcode). Full story: docs/guides/testing.md
 DEVELOPER_DIR_PATH := $(shell xcode-select -p)

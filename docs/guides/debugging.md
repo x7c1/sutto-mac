@@ -93,17 +93,27 @@ distribution signing or notarization.
 
 ### Usage
 
-Pass the certificate name whenever you build the bundle:
+Recommended: create a git-ignored `Local.mk` next to the `Makefile` (it is
+`-include`d automatically), so every build in this checkout signs — no
+matter which shell, tool, or agent runs `make`:
 
-```sh
-make run CODESIGN_IDENTITY="Sutto Dev"
+```make
+# Local.mk — per-machine settings, not committed
+CODESIGN_IDENTITY := Sutto Dev
 ```
 
-`make app` accepts the same variable, and exporting it in your shell profile
-(`export CODESIGN_IDENTITY="Sutto Dev"`) makes plain `make run` sign
-automatically. The first signed build still needs one manual grant under
-System Settings › Privacy & Security › Accessibility (it is a new identity),
-but every rebuild after that keeps the permission.
+Alternatively pass the variable per invocation
+(`make run CODESIGN_IDENTITY="Sutto Dev"`) or export it in your shell
+profile — but note both of those silently stop applying in shells without
+the export (a fresh terminal, another tool's shell), and every unsigned
+build you launch re-triggers the permission dance. `Local.mk` avoids that
+failure mode.
+
+The first signed build still needs one manual grant under System Settings ›
+Privacy & Security › Accessibility (it is a new identity), but every rebuild
+after that keeps the permission. Verify what a bundle was actually signed
+with via `codesign -dv .build/Sutto.app` (unsigned builds show
+`Signature=adhoc`).
 
 ## Gotchas
 
