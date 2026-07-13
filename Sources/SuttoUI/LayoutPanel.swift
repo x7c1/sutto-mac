@@ -163,6 +163,12 @@ public final class LayoutPanel {
         panel.level = .popUpMenu
         panel.isOpaque = false
         panel.backgroundColor = .clear
+        // The panel is invariably dark, like the GNOME panel: the palette
+        // is fixed, and forcing the appearance keeps the few semantic
+        // colors (the empty-state label) resolving against dark no matter
+        // the system setting. The settings window, by contrast, stays
+        // system-adaptive — product identity here, OS nativeness there.
+        panel.appearance = NSAppearance(named: .darkAqua)
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.onCancel = { [weak self] in
@@ -303,7 +309,7 @@ public final class LayoutPanel {
         return label
     }
 
-    private func makeBackground(containing stack: NSStackView) -> NSVisualEffectView {
+    private func makeBackground(containing stack: NSStackView) -> NSView {
         // The background doubles as the whole-panel hover surface for
         // auto-hide: its tracking area spans the full panel bounds, so
         // moving between the region buttons (which carry their own
@@ -318,14 +324,13 @@ public final class LayoutPanel {
             guard let self else { return }
             self.apply(self.autoHide.cursorExited())
         }
-        background.material = .hudWindow
-        background.blendingMode = .behindWindow
-        background.state = .active
+        // GNOME's flat, slightly translucent dark with its hairline rim —
+        // a plain layer color, deliberately not a blurred vibrancy
+        // material (see ``PanelPalette``).
         background.wantsLayer = true
+        background.layer?.backgroundColor = PanelPalette.panelBackground.cgColor
         background.layer?.cornerRadius = PanelMetrics.panelCornerRadius
         background.layer?.masksToBounds = true
-        // The hairline rim the GNOME panel draws around its background;
-        // without it the vibrancy material melts into dark wallpapers.
         background.layer?.borderColor = PanelPalette.panelBorder.cgColor
         background.layer?.borderWidth = PanelMetrics.panelBorderWidth
 
@@ -431,7 +436,7 @@ public final class LayoutPanel {
 /// The panel background with a whole-panel hover tracking area, reporting
 /// enter/exit to the auto-hide policy — the AppKit counterpart of the
 /// enter/leave events GNOME connects on its panel container.
-private final class HoverTrackingBackgroundView: NSVisualEffectView {
+private final class HoverTrackingBackgroundView: NSView {
     var onMouseEntered: (() -> Void)?
     var onMouseExited: (() -> Void)?
 

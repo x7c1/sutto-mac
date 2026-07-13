@@ -10,13 +10,16 @@ import AppKit
 /// - ``PanelPalette``/``PanelMetrics`` carry the *panel's* visual identity,
 ///   ported from the GNOME version's stylesheet vocabulary
 ///   (`ui/constants.ts` and the inline styles in `ui/components/*.ts`).
-///   The panel should feel like Sutto on any platform, so these are fixed
-///   values, not system colors — with macOS conventions kept where they
-///   conflict (the vibrancy material stays, for example).
+///   The panel should feel like Sutto on any platform, so these are the
+///   GNOME constants themselves, not system colors — and the panel window
+///   forces the dark appearance, so it looks identical regardless of the
+///   system's light/dark setting, exactly like the invariably dark GNOME
+///   panel. Product identity wins on this surface.
 /// - ``SettingsMetrics`` carries the *settings window's* rhythm, which
 ///   follows the macOS HIG instead: system semantic colors only (defined
 ///   at the point of use, since AppKit provides them), an 8-point spacing
-///   grid, and standard control sizing.
+///   grid, standard control sizing — and the system appearance, adapting
+///   to light and dark mode. OS nativeness wins on this surface.
 ///
 /// Geometry that the domain shares with keyboard navigation (miniature
 /// sizes, space/row spacing, content insets) is *not* here — it lives in
@@ -24,34 +27,47 @@ import AppKit
 /// traverse exactly the geometry the panel draws. This file only holds
 /// values that are free to change without touching behavior.
 
-/// Fixed colors for the layout panel and its miniatures. The panel
-/// background is an `NSVisualEffectView` with the `hudWindow` material,
-/// which is dark in both system appearances, so these do not react to the
-/// appearance — the same fixed dark palette the GNOME panel uses
-/// (`ui/constants.ts`). Each constant names its GNOME counterpart.
+/// Fixed colors for the layout panel and its miniatures: the GNOME
+/// panel's palette (`ui/constants.ts`), constant for constant. The panel
+/// window forces the dark appearance, so nothing here reacts to the
+/// system appearance — the panel is invariably dark, like the GNOME one.
+///
+/// The background is a plain layer color, not a vibrancy material:
+/// GNOME's `PANEL_BG_COLOR` is a 90%-opaque flat dark with no backdrop
+/// blur (GNOME Shell does not blur), and a flat slightly-translucent
+/// layer reproduces that exactly, where a blurred material would read as
+/// a different (macOS HUD) identity.
 enum PanelPalette {
+    /// The panel's background (GNOME `PANEL_BG_COLOR`,
+    /// rgba(40,40,40,0.9)): flat dark, slightly translucent — whatever is
+    /// behind shows through faintly, unblurred, as in GNOME.
+    static let panelBackground = NSColor(
+        srgbRed: 40 / 255, green: 40 / 255, blue: 40 / 255, alpha: 0.9)
+
     /// The panel's hairline border (GNOME `PANEL_BORDER_COLOR`,
-    /// rgba(255,255,255,0.2)). GNOME draws it around `PANEL_BG_COLOR`;
-    /// here it rims the vibrancy material, which otherwise melts into
-    /// dark wallpapers.
+    /// rgba(255,255,255,0.2)), rimming the background so it does not melt
+    /// into dark wallpapers.
     static let panelBorder = NSColor.white.withAlphaComponent(0.2)
 
     /// A space miniature's fill (GNOME `MINIATURE_SPACE_BG_COLOR`,
-    /// a raised gray over the panel background). Translucent white rather
-    /// than opaque gray so the vibrancy material shows through; 0.10
-    /// approximates the GNOME lift of that gray over its panel color.
-    static let spaceBackground = NSColor.white.withAlphaComponent(0.10)
+    /// rgba(80,80,80,0.9)): a raised gray over the panel background.
+    static let spaceBackground = NSColor(
+        srgbRed: 80 / 255, green: 80 / 255, blue: 80 / 255, alpha: 0.9)
 
-    /// A display miniature's fill (GNOME `DISPLAY_BG_COLOR`, near-black —
-    /// clearly darker than the space it sits on; 0.45 keeps that
-    /// space/display contrast over the translucent space fill).
-    static let displayBackground = NSColor.black.withAlphaComponent(0.45)
+    /// A display miniature's fill (GNOME `DISPLAY_BG_COLOR`,
+    /// rgba(20,20,20,0.9)): near-black, clearly darker than the space it
+    /// sits on.
+    static let displayBackground = NSColor(
+        srgbRed: 20 / 255, green: 20 / 255, blue: 20 / 255, alpha: 0.9)
 
-    /// Layout region fill (GNOME `BUTTON_BG_COLOR`).
-    static let regionBackground = NSColor.white.withAlphaComponent(0.15)
+    /// Layout region fill (GNOME `BUTTON_BG_COLOR`, rgba(80,80,80,0.6)).
+    static let regionBackground = NSColor(
+        srgbRed: 80 / 255, green: 80 / 255, blue: 80 / 255, alpha: 0.6)
 
-    /// Layout region fill on hover (GNOME `BUTTON_BG_COLOR_HOVER`).
-    static let regionBackgroundHovered = NSColor.white.withAlphaComponent(0.30)
+    /// Layout region fill on hover (GNOME `BUTTON_BG_COLOR_HOVER`,
+    /// rgba(120,120,120,0.8)).
+    static let regionBackgroundHovered = NSColor(
+        srgbRed: 120 / 255, green: 120 / 255, blue: 120 / 255, alpha: 0.8)
 
     /// Layout region border (GNOME `BUTTON_BORDER_COLOR`,
     /// rgba(255,255,255,0.3)).
@@ -73,7 +89,8 @@ enum PanelPalette {
 
     /// The menu bar strip marking the primary display (GNOME miniature
     /// display's rgba(200,200,200,0.9) — the Ubuntu Displays convention).
-    static let menuBarStrip = NSColor(white: 0.8, alpha: 0.9)
+    static let menuBarStrip = NSColor(
+        srgbRed: 200 / 255, green: 200 / 255, blue: 200 / 255, alpha: 0.9)
 
     /// The display number badge's text (GNOME monitor label,
     /// rgba(255,255,255,0.9)).
