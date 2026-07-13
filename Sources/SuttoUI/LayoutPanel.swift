@@ -61,6 +61,7 @@ public final class LayoutPanel {
 
     private let model: ActivePanelModelUseCase
     private let selection: LayoutSelectionUseCase
+    private let position: PanelPositionUseCase
     private var panel: OverlayPanel?
     private var renderedModel: MiniaturePanelModel?
 
@@ -83,9 +84,14 @@ public final class LayoutPanel {
     /// monitor that is never removed keeps firing — and leaks).
     private var mouseMonitors: [Any] = []
 
-    public init(model: ActivePanelModelUseCase, selection: LayoutSelectionUseCase) {
+    public init(
+        model: ActivePanelModelUseCase,
+        selection: LayoutSelectionUseCase,
+        position: PanelPositionUseCase
+    ) {
         self.model = model
         self.selection = selection
+        self.position = position
     }
 
     /// Whether the panel is currently on screen.
@@ -93,17 +99,24 @@ public final class LayoutPanel {
         panel?.isVisible ?? false
     }
 
-    /// Shows the panel centered on the screen containing the mouse pointer
-    /// (falling back to the main screen), and gives it key status so Escape
-    /// works. Showing does not activate the app.
+    /// Shows the panel centered over the frontmost app's focused window,
+    /// pushed back inside that screen's work area when the window sits
+    /// near an edge — the GNOME shortcut path (`showAtWindowCenter`).
+    /// Without a readable focused window (none exists, or the
+    /// Accessibility permission is missing) it falls back to centering on
+    /// the screen containing the mouse pointer (then the main screen).
+    /// The panel gets key status so Escape works; showing does not
+    /// activate the app.
     public func show() {
         let panel = self.panel ?? makePanel()
         self.panel = panel
         renderContentIfNeeded(in: panel)
 
-        if let screen = screenWithMouse() {
+        let size = panel.frame.size
+        if let frame = position.panelFrame(width: size.width, height: size.height) {
+            panel.setFrameOrigin(NSPoint(x: frame.x, y: frame.y))
+        } else if let screen = screenWithMouse() {
             let visible = screen.visibleFrame
-            let size = panel.frame.size
             panel.setFrameOrigin(
                 NSPoint(
                     x: visible.midX - size.width / 2,

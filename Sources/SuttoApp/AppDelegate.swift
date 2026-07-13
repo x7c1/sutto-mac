@@ -32,10 +32,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Selecting a layout snaps the frontmost app's focused window. The
         // layout panel is a non-activating NSPanel, so the app that was
         // frontmost when the panel appeared is still frontmost when the
-        // button is clicked — placement targets that app's window.
+        // button is clicked — placement targets that app's window. The
+        // same AX adapter also feeds the panel's positioning (the panel
+        // opens centered over that window).
+        let windowController = AXWindowController()
         let placement = WindowPlacementUseCase(
             permission: AccessibilityPermissionChecker(),
-            windows: AXWindowController(),
+            windows: windowController,
             screens: screens
         )
         // Collections persist under Application Support, the active
@@ -92,7 +95,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         on display \(event.displayKey, privacy: .public)
                         """)
                 placement.place(event.layout, onDisplayKey: event.displayKey)
-            }
+            },
+            position: PanelPositionUseCase(
+                windows: windowController,
+                screens: screens
+            )
         )
         layoutPanel = panel
 
