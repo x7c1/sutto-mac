@@ -5,6 +5,12 @@ import AppKit
 /// and the settings window. Tweaking the look of either surface should be
 /// a matter of editing values here, not hunting literals across views.
 ///
+/// One documented exception: the panel's *structural* geometry —
+/// `contentInset` (panel edge to the miniatures), `spaceSpacing`, and
+/// `rowSpacing` — lives in `SuttoDomain.MiniaturePanelModel.Metrics`,
+/// because the keyboard navigator rebuilds the drawn geometry from those
+/// values and the two must agree. Tune them there.
+///
 /// Two vocabularies meet in this file, deliberately kept apart:
 ///
 /// - ``PanelPalette``/``PanelMetrics`` carry the *panel's* visual identity,
@@ -174,7 +180,7 @@ enum PanelMetrics {
     /// Gap between the last space row and the footer (GNOME
     /// `FOOTER_MARGIN_TOP`) — tighter than the row spacing, so the footer
     /// reads as the panel's rim rather than another row.
-    static let footerMarginTop: CGFloat = 3
+    static let footerMarginTop: CGFloat = 7
 
     /// The footer label's font size (GNOME renders "Powered by Sutto" at
     /// 12px).
