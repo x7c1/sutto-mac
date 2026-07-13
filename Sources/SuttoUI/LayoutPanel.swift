@@ -46,7 +46,9 @@ import SuttoOperations
 /// the GNOME background actor the monitors cannot swallow the outside
 /// click — the click also does whatever it would normally do.
 ///
-/// Space toggling arrives later within v0.3.
+/// Spaces disabled in the settings window's preview are the ones the
+/// show-time model resolution filters out; the toggle needs no wiring here
+/// beyond that re-resolution.
 @MainActor
 public final class LayoutPanel {
     /// Called when the user presses the open-settings shortcut
