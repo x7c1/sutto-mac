@@ -83,10 +83,6 @@ enum PanelPalette {
     /// concurrent hover (see `LayoutRegionButton`).
     static let regionBorderFocused = NSColor.white.withAlphaComponent(0.90)
 
-    /// Layout region label text (GNOME labels render white on the dark
-    /// region fill).
-    static let regionLabel = NSColor.white.withAlphaComponent(0.90)
-
     /// The menu bar strip marking the primary display (GNOME miniature
     /// display's rgba(200,200,200,0.9) — the Ubuntu Displays convention).
     static let menuBarStrip = NSColor(
@@ -144,11 +140,6 @@ enum PanelMetrics {
     /// The focused region's border width (mac-only; see
     /// ``PanelPalette/regionBorderFocused``).
     static let regionFocusedBorderWidth: CGFloat = 2
-
-    /// Region label font size. Smaller than the GNOME 11pt: mac region
-    /// labels clip to the region (GNOME lets them overflow), so a smaller
-    /// face fits more labels.
-    static let regionLabelFontSize: CGFloat = 10
 
     /// The primary display's menu bar strip height (GNOME uses 4px; 3 keeps
     /// the strip subtle at the mac miniature scale).

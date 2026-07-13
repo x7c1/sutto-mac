@@ -170,9 +170,15 @@ final class MiniatureDisplayView: NSView {
 }
 
 /// A clickable layout region inside a display miniature: a bordered shape
-/// proportional to the real layout, labeled when the text fits and always
-/// carrying a tooltip. The AppKit counterpart of the GNOME
+/// proportional to the real layout. The AppKit counterpart of the GNOME
 /// `createLayoutButton`.
+///
+/// The region draws no text, like the GNOME button (whose `layout.label`
+/// is never rendered): users pick layouts visually from the region shapes,
+/// and drawn names added noise — with the fit-based appear/disappear
+/// making them look inconsistent besides. The layout name survives as a
+/// tooltip (a mac-only nicety GNOME lacks) and as the accessibility
+/// title.
 ///
 /// Hover feedback follows the GNOME style priority (hover beats the normal
 /// style; the selected state arrives with layout history, deferred within
@@ -188,6 +194,9 @@ final class MiniatureDisplayView: NSView {
 /// intact. The focused style shares the hover background (in GNOME the two
 /// styles are identical) but carries a brighter, thicker border so the
 /// keyboard position stays distinguishable next to a hover highlight.
+///
+/// Exposed to accessibility as a button titled with the layout label —
+/// keyboard navigation and the e2e harness depend on the title.
 final class LayoutRegionButton: NSButton {
     let layout: Layout
     let displayKey: String
@@ -200,12 +209,6 @@ final class LayoutRegionButton: NSButton {
 
     private let onClick: (LayoutSelectedEvent) -> Void
     private var isHovered = false
-
-    private static let labelFont = NSFont.systemFont(ofSize: PanelMetrics.regionLabelFontSize)
-
-    /// Horizontal slack required around the label for it to count as
-    /// fitting the region (see `fits(label:in:)`).
-    private static let labelPadding: CGFloat = 4
 
     init(
         region: MiniaturePanelModel.Region,
@@ -226,19 +229,9 @@ final class LayoutRegionButton: NSButton {
         layer?.cornerRadius = PanelMetrics.regionCornerRadius
         applyStyle()
 
-        title = Self.fits(label: layout.label, in: frame.size) ? layout.label : ""
-        if !title.isEmpty {
-            let style = NSMutableParagraphStyle()
-            style.alignment = .center
-            style.lineBreakMode = .byClipping
-            attributedTitle = NSAttributedString(
-                string: layout.label,
-                attributes: [
-                    .font: Self.labelFont,
-                    .foregroundColor: PanelPalette.regionLabel,
-                    .paragraphStyle: style,
-                ])
-        }
+        // No drawn text (see the type comment); the name lives in the
+        // tooltip and the accessibility title.
+        title = ""
         toolTip = layout.label
 
         target = self
@@ -250,7 +243,7 @@ final class LayoutRegionButton: NSButton {
         fatalError("LayoutRegionButton does not support NSCoder")
     }
 
-    /// The layout label, whether or not the visible text fit the region.
+    /// The layout label; the visible button is a plain shape.
     override func accessibilityTitle() -> String? {
         layout.label
     }
@@ -308,14 +301,5 @@ final class LayoutRegionButton: NSButton {
 
     @objc private func clicked() {
         onClick(LayoutSelectedEvent(layout: layout, displayKey: displayKey))
-    }
-
-    // MARK: - Label fitting
-
-    private static func fits(label: String, in size: NSSize) -> Bool {
-        let text = label as NSString
-        let bounds = text.size(withAttributes: [.font: labelFont])
-        return bounds.width + labelPadding <= size.width
-            && bounds.height <= size.height
     }
 }
