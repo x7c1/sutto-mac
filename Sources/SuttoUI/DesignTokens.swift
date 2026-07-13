@@ -134,9 +134,12 @@ enum PanelMetrics {
     /// corners restore the display outline.
     static let displayCornerRadius: CGFloat = 0
 
-    /// A layout region's corner radius (GNOME `layout-button.ts`,
-    /// border-radius 2).
-    static let regionCornerRadius: CGFloat = 2
+    /// A layout region's corner radius. Deliberate deviation from the
+    /// GNOME border-radius of 2 (user decision after on-screen review, the
+    /// same call as the displays): at real miniature size even the 2pt
+    /// rounding read as unwanted softness on the region frames, and square
+    /// regions sit coherently inside the now-square displays.
+    static let regionCornerRadius: CGFloat = 0
 
     /// A layout region's border width (GNOME `BUTTON_BORDER_WIDTH`).
     static let regionBorderWidth: CGFloat = 1
