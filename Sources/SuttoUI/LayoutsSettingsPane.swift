@@ -254,16 +254,20 @@ final class LayoutsSettingsPane: NSViewController {
         return row
     }
 
-    /// The dark well behind the space preview: a rounded surface filled
-    /// with the panel's own background color, so the miniatures composite
-    /// against the same base on both surfaces. The palette is translucent
-    /// (space fill rgba(80,80,80,0.9), region borders white 0.3, …), so
-    /// over the settings window's light background the same tokens
-    /// rendered visibly different colors than on the panel — the well
-    /// reproduces the panel's compositing base and makes the preview
-    /// appearance-independent. The GNOME preferences draw their preview
-    /// straight over the Adwaita window background and *have* that
-    /// inconsistency; the well is a deliberate improvement, not a port.
+    /// The dark well behind the space preview: a rounded surface in the
+    /// panel background's hue at full opacity, so the miniatures composite
+    /// against a stable dark base. The palette is translucent (space fill
+    /// rgba(80,80,80,0.9), region borders white 0.3, …), so over the
+    /// settings window's light background the same tokens rendered
+    /// visibly different colors than on the panel — and a *translucent*
+    /// well would itself lighten over that background the same way, which
+    /// is why the fill is ``PanelPalette/panelBackgroundOpaque`` rather
+    /// than the panel's translucent base. The result is identical in both
+    /// appearances (the panel's own perceived tone still varies faintly
+    /// with the wallpaper, by design). The GNOME preferences draw their
+    /// preview straight over the Adwaita window background and *have*
+    /// that inconsistency; the well is a deliberate improvement, not a
+    /// port.
     ///
     /// The subtree forces the dark appearance so any semantic color
     /// inside (the "No spaces in this collection" label) resolves against
@@ -271,7 +275,7 @@ final class LayoutsSettingsPane: NSViewController {
     private func makePreviewWell() -> NSView {
         let well = NSView()
         well.wantsLayer = true
-        well.layer?.backgroundColor = PanelPalette.panelBackground.cgColor
+        well.layer?.backgroundColor = PanelPalette.panelBackgroundOpaque.cgColor
         well.layer?.cornerRadius = SettingsMetrics.previewWellCornerRadius
         well.appearance = NSAppearance(named: .darkAqua)
 

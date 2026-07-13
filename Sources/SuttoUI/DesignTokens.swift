@@ -53,6 +53,16 @@ enum PanelPalette {
     static let panelBackground = NSColor(
         srgbRed: 40 / 255, green: 40 / 255, blue: 40 / 255, alpha: 0.9)
 
+    /// The same hue at full opacity, for the settings preview well. The
+    /// pair is deliberate: the *panel* keeps GNOME's translucent base
+    /// (the wallpaper showing through faintly is part of the identity),
+    /// but the well exists to give the miniatures a backdrop-independent
+    /// compositing base — a translucent well would lighten over the
+    /// settings window's bright background and reintroduce exactly the
+    /// color shift it eliminates, so it must be opaque.
+    static let panelBackgroundOpaque = NSColor(
+        srgbRed: 40 / 255, green: 40 / 255, blue: 40 / 255, alpha: 1.0)
+
     /// The panel's hairline border (GNOME `PANEL_BORDER_COLOR`,
     /// rgba(255,255,255,0.2)), rimming the background so it does not melt
     /// into dark wallpapers.
