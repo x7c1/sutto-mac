@@ -97,12 +97,10 @@ final class LayoutsSettingsPane: NSViewController {
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = SettingsMetrics.groupSpacing
-        let inset = SettingsMetrics.contentInset
-        stack.edgeInsets = NSEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
-        stack.widthAnchor.constraint(
-            greaterThanOrEqualToConstant: SettingsMetrics.minPaneWidth
-        ).isActive = true
-        view = stack
+        // The window margins live on the container (required constraints,
+        // all four edges), not on stack edge insets — see
+        // ``SettingsPane/containerView(wrapping:)``.
+        view = SettingsPane.containerView(wrapping: stack)
     }
 
     /// Re-renders everything that shows state: the collection rows and the

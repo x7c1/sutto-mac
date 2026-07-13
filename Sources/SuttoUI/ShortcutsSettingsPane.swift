@@ -57,12 +57,10 @@ final class ShortcutsSettingsPane: NSViewController {
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = SettingsMetrics.controlSpacing
-        let inset = SettingsMetrics.contentInset
-        stack.edgeInsets = NSEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
-        stack.widthAnchor.constraint(
-            greaterThanOrEqualToConstant: SettingsMetrics.minPaneWidth
-        ).isActive = true
-        view = stack
+        // The window margins live on the container (required constraints,
+        // all four edges), not on stack edge insets — see
+        // ``SettingsPane/containerView(wrapping:)``.
+        view = SettingsPane.containerView(wrapping: stack)
     }
 
     /// Re-renders the capture field and the Reset button from the stored
