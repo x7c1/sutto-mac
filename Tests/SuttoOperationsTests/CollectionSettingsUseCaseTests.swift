@@ -183,4 +183,121 @@ import Testing
         }
         #expect(preferences.storedActiveCollectionId == work.id)
     }
+
+    // MARK: - Space toggling
+
+    private func firstSpaceId(of collection: SpaceCollection) throws -> SpaceId {
+        try #require(collection.rows.first?.spaces.first?.id)
+    }
+
+    /// Toggling a preset's space persists through the preset file — GNOME's
+    /// `updateSpaceEnabled` covers generated presets, not just customs.
+    @Test func togglingAPresetSpaceDisablesAndPersistsIt() throws {
+        let spaceId = try firstSpaceId(of: standardPreset)
+
+        try useCase.toggleSpace(collectionId: standardPreset.id, spaceId: spaceId)
+
+        #expect(repository.presetCollections[0].space(withId: spaceId)?.enabled == false)
+    }
+
+    @Test func togglingACustomSpaceDisablesAndPersistsIt() throws {
+        let custom = try repository.addCustomCollection(
+            name: "Work",
+            rows: [SpacesRow(spaces: [Space(id: .generate(), enabled: true, displays: [:])])]
+        )
+        let spaceId = try firstSpaceId(of: custom)
+
+        try useCase.toggleSpace(collectionId: custom.id, spaceId: spaceId)
+
+        #expect(repository.collections[0].space(withId: spaceId)?.enabled == false)
+        // Presets stay untouched: the write lands in the customs file only.
+        #expect(
+            repository.presetCollections.flatMap(\.rows).flatMap(\.spaces)
+                .allSatisfy { $0.enabled })
+    }
+
+    /// Toggle is a flip of the *stored* state: twice restores the original.
+    @Test func togglingTwiceRestoresTheSpace() throws {
+        let spaceId = try firstSpaceId(of: standardPreset)
+
+        try useCase.toggleSpace(collectionId: standardPreset.id, spaceId: spaceId)
+        try useCase.toggleSpace(collectionId: standardPreset.id, spaceId: spaceId)
+
+        #expect(repository.presetCollections[0].space(withId: spaceId)?.enabled == true)
+    }
+
+    /// Disabling every space is allowed — the GNOME preferences let you —
+    /// and the panel model then renders empty (its "no spaces" message),
+    /// pinning the all-disabled edge end to end.
+    @Test func disablingEverySpaceLeavesThePanelModelEmpty() throws {
+        preferences.storedActiveCollectionId = standardPreset.id
+        for space in standardPreset.rows.flatMap(\.spaces) {
+            try useCase.toggleSpace(collectionId: standardPreset.id, spaceId: space.id)
+        }
+
+        let panelModel = ActivePanelModelUseCase(
+            repository: repository, preferences: preferences, screens: screens,
+            environment: environment
+        ).panelModel()
+
+        #expect(panelModel.rows.isEmpty)
+        // The preview still shows every space, all dimmed, for re-enabling.
+        let preview = try #require(useCase.previewModel())
+        #expect(preview.rows.flatMap(\.spaces).allSatisfy { !$0.enabled })
+    }
+
+    /// An unknown space id is a quiet no-op, like the GNOME
+    /// `updateSpaceEnabled` returning false.
+    @Test func togglingAMissingSpaceChangesNothing() throws {
+        let before = repository.presetCollections
+
+        try useCase.toggleSpace(collectionId: standardPreset.id, spaceId: .generate())
+        try useCase.toggleSpace(collectionId: .generate(), spaceId: .generate())
+
+        #expect(repository.presetCollections == before)
+    }
+
+    /// A failed save surfaces to the caller (the settings window alerts);
+    /// the in-memory state stays what is on disk.
+    @Test func aFailedToggleSaveThrows() throws {
+        let spaceId = try firstSpaceId(of: standardPreset)
+        repository.saveError = StubError(message: "disk full")
+
+        #expect(throws: StubError.self) {
+            try useCase.toggleSpace(collectionId: standardPreset.id, spaceId: spaceId)
+        }
+    }
+
+    // MARK: - Preview
+
+    /// The preview shows the collection the panel resolves: the stored
+    /// selection, or the default preset without one — including its
+    /// disabled spaces, which the panel filters out.
+    @Test func previewsTheActiveCollectionIncludingDisabledSpaces() throws {
+        let spaceId = try firstSpaceId(of: standardPreset)
+        try useCase.toggleSpace(collectionId: standardPreset.id, spaceId: spaceId)
+
+        let preview = try #require(useCase.previewModel())
+
+        #expect(preview.collectionId == standardPreset.id)
+        let entries = preview.rows.flatMap(\.spaces)
+        #expect(entries.count == standardPreset.rows.flatMap(\.spaces).count)
+        #expect(entries.contains { !$0.enabled })
+    }
+
+    @Test func previewsTheStoredSelection() throws {
+        let custom = try repository.addCustomCollection(
+            name: "Work",
+            rows: [SpacesRow(spaces: [Space(id: .generate(), enabled: true, displays: [:])])]
+        )
+        preferences.storedActiveCollectionId = custom.id
+
+        #expect(useCase.previewModel()?.collectionId == custom.id)
+    }
+
+    @Test func previewIsNilWithoutAnyCollection() {
+        repository.presetCollections = []
+
+        #expect(useCase.previewModel() == nil)
+    }
 }

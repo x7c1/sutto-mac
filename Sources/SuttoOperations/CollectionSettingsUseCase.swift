@@ -3,7 +3,9 @@ import SuttoDomain
 import os
 
 /// Backs the Collections section of the settings window: which collections
-/// exist, which one is active, selecting another, and deleting a custom one.
+/// exist, which one is active, selecting another, deleting a custom one,
+/// previewing the active collection's spaces, and toggling a space's
+/// visibility.
 ///
 /// Mirrors the collection management of the GNOME preferences
 /// (`prefs/spaces-page.ts` over its `SpaceCollectionOperations`): a radio
@@ -61,6 +63,63 @@ public final class CollectionSettingsUseCase {
             environment.recordActiveCollection(id)
             logger.info("active collection selected: \(id.description, privacy: .public)")
         }
+    }
+
+    /// The preview of the collection the panel currently shows — the same
+    /// resolution the panel applies, so the preview and the panel always
+    /// agree on which collection is on display. `nil` only when nothing
+    /// resolves at all (no stored presets and no selection), which the
+    /// launch-time preset generation makes practically unreachable.
+    ///
+    /// Rebuilt from the repository on every call, so a toggle, an import,
+    /// or a selection change is reflected on the next refresh — the GNOME
+    /// preview reloads the collection from file the same way
+    /// (`findCollectionById` before `updatePreview`).
+    public func previewModel() -> SpacePreviewModel? {
+        guard
+            let collection = repository.activeCollection(
+                activeId: preferences.activeCollectionId(),
+                screens: screens.screens()
+            )
+        else { return nil }
+        return SpacePreviewModel.make(
+            collection: collection,
+            screens: screens.screens(),
+            environments: environment.storedEnvironments()
+        )
+    }
+
+    /// Flips the space's visibility in the panel and persists the result —
+    /// generated presets and imported customs alike, through
+    /// ``SpaceCollectionRepository/updateSpaceEnabled(collectionId:spaceId:enabled:)``.
+    ///
+    /// The current state is re-read from the repository rather than taken
+    /// from the caller, so a stale preview cannot un-toggle a change made
+    /// elsewhere. Disabling the last enabled space is allowed, like the
+    /// GNOME preferences: the panel then shows its "no spaces" message.
+    /// Unknown ids log and no-op (the GNOME `updateSpaceEnabled` returns
+    /// `false` the same way).
+    public func toggleSpace(collectionId: CollectionId, spaceId: SpaceId) throws {
+        guard
+            let collection = repository.findCollection(by: collectionId),
+            let space = collection.space(withId: spaceId)
+        else {
+            logger.warning(
+                """
+                space to toggle not found: \(spaceId.description, privacy: .public) \
+                in \(collectionId.description, privacy: .public)
+                """)
+            return
+        }
+        let enabled = !space.enabled
+        try repository.updateSpaceEnabled(
+            collectionId: collectionId, spaceId: spaceId, enabled: enabled)
+        logger.info(
+            """
+            space \(spaceId.description, privacy: .public) \
+            \(enabled ? "enabled" : "disabled", privacy: .public) \
+            in \(collectionId.description, privacy: .public)
+            """)
     }
 
     /// Deletes the custom collection with `id`. Deleting the active
