@@ -85,6 +85,13 @@ final class ShortcutCaptureField: NSView {
     /// Command-modified presses bypass `keyDown` and arrive as key
     /// equivalents; while capturing they are shortcut input like any other
     /// press, so route them into the same handling.
+    ///
+    /// This also outranks the app's main menu: AppKit asks the key
+    /// window's view hierarchy `performKeyEquivalent` before falling
+    /// through to `NSApp.mainMenu`, so while capturing, combos the menu
+    /// also claims (⌘W Close, ⌘Q Quit) are recorded as shortcuts instead
+    /// of closing the window or quitting the app. Not capturing, the
+    /// field passes and the menu handles them normally.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard isCapturing, event.type == .keyDown else {
             return super.performKeyEquivalent(with: event)
