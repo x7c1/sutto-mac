@@ -81,6 +81,50 @@ import Testing
         #expect(right.layout.label == "Right Half")
     }
 
+    /// Tiling layouts stay adjacent after rounding, whatever fractional
+    /// width the display scales to. Regression test for the visible seam
+    /// gaps: with per-term rounding (each position and size rounded on its
+    /// own), a 992x1000 screen scales to a 93.2-point display where
+    /// `0.25w = 23.3` — the second column ended at `23 + 23 = 46` while
+    /// the third started at `round(46.6) = 47`, leaving a one-point gap of
+    /// display background between tiles. Rounding the combined edges makes
+    /// every shared edge agree by construction.
+    @Test func tilingRegionsShareEdgesOnFractionallyScaledDisplays() throws {
+        let grid = LayoutGroup(
+            name: "columns",
+            layouts: (0..<4).map { column in
+                Layout(
+                    label: "Column \(column + 1)",
+                    position: LayoutPosition(x: "\(column * 25)%", y: "0"),
+                    size: LayoutSize(width: "25%", height: "100%")
+                )
+            }
+        )
+        let collection = makeCollection(spaces: [makeSpace(displays: ["0": grid])])
+        // Height 1000 makes the height limit win (scale 0.1), so the
+        // display is 992 * 0.1 - 6 = 93.2 points wide.
+        let screen = Screen(
+            frame: PixelRect(x: 0, y: 0, width: 992, height: 1000),
+            visibleFrame: PixelRect(x: 0, y: 0, width: 992, height: 975)
+        )
+
+        let model = MiniaturePanelModel.make(collection: collection, screens: [screen])
+
+        let display = try #require(model.rows.first?.spaces.first?.displays.first)
+        let regions = display.regions
+        try #require(regions.count == 4)
+        for (left, right) in zip(regions, regions.dropFirst()) {
+            #expect(
+                left.frame.maxX == right.frame.x,
+                "\(left.layout.label) ends at \(left.frame.maxX) but \(right.layout.label) starts at \(right.frame.x)"
+            )
+        }
+        // The last column's edge stays on the display (never past the
+        // mask that would clip its border).
+        let last = try #require(regions.last)
+        #expect(last.frame.maxX <= display.frame.width)
+    }
+
     /// Absolute pixel expressions shrink with the miniature: 960px on a
     /// 1920-point-wide work area is half the display, the same as "50%".
     @Test func scalesPixelExpressionsAgainstTheWorkArea() throws {

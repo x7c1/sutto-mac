@@ -269,18 +269,39 @@ public struct MiniaturePanelModel: Equatable, Sendable {
                 let height = evaluate(
                     layout.size.height, container: displayFrame.height, screen: workAreaHeight)
             else { return nil }
+
+            // Round the region's *edges* to whole pixels, not its position
+            // and size independently. Tiling layouts define adjacency
+            // through expressions (x = 25%, width = 25%, next x = 50%),
+            // and per-term rounding — GNOME's Math.round on every value,
+            // which `LayoutExpressionEvaluator.evaluate` mirrors — lets
+            // the accumulated edge (`round(0.25w) + round(0.25w)`) land a
+            // pixel away from the neighbor's own edge (`round(0.5w)`) on
+            // fractionally scaled displays, drawing a visible background
+            // gap between tiles that should touch (a deliberate fix over
+            // GNOME, whose miniatures carry the same seam artifact).
+            // Rounding both tiles' shared edge from the same exact value
+            // makes adjacency survive rounding by construction.
+            let minX = LayoutExpressionEvaluator.roundToPixel(x)
+            let minY = LayoutExpressionEvaluator.roundToPixel(y)
+            let maxX = LayoutExpressionEvaluator.roundToPixel(x + width)
+            let maxY = LayoutExpressionEvaluator.roundToPixel(y + height)
             return Region(
                 layout: layout,
-                frame: PixelRect(x: x, y: y, width: width, height: height)
+                frame: PixelRect(
+                    x: minX, y: minY, width: maxX - minX, height: maxY - minY)
             )
         }
     }
 
+    /// Evaluates an expression to an *unrounded* pixel value — the region
+    /// computation rounds combined edges instead of individual terms (see
+    /// the comment in ``regions(for:displayFrame:workAreaWidth:workAreaHeight:)``).
     private static func evaluate(
         _ expression: String, container: Double, screen: Double
     ) -> Double? {
         guard let parsed = try? LayoutExpressionParser.parse(expression) else { return nil }
-        return LayoutExpressionEvaluator.evaluate(
+        return LayoutExpressionEvaluator.evaluateUnrounded(
             parsed, containerSize: container, screenSize: screen)
     }
 }
