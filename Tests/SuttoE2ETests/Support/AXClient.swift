@@ -19,8 +19,10 @@ enum AXClient {
     private static let titleAttribute = "AXTitle" as CFString
     private static let frontmostAttribute = "AXFrontmost" as CFString
     private static let descriptionAttribute = "AXDescription" as CFString
+    private static let valueAttribute = "AXValue" as CFString
     private static let buttonRole = "AXButton"
     private static let groupRole = "AXGroup"
+    private static let checkBoxRole = "AXCheckBox"
     private static let pressAction = "AXPress" as CFString
 
     // MARK: - Application state
@@ -105,6 +107,32 @@ enum AXClient {
             }
         }
         return nil
+    }
+
+    // MARK: - Checkboxes
+
+    /// Depth-first search for a checkbox labeled `label` in the element's
+    /// subtree (the element itself included). The settings window's space
+    /// toggles are such checkboxes ("Space 1", "Space 2", …), their value
+    /// tracking the enabled state.
+    static func checkBox(labeled label: String, under element: AXUIElement) -> AXUIElement? {
+        if role(of: element) == checkBoxRole,
+            description(of: element) == label || title(of: element) == label
+        {
+            return element
+        }
+        for child in children(of: element) {
+            if let found = checkBox(labeled: label, under: child) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    /// The element's integer `AXValue` — for a checkbox, 1 checked and 0
+    /// unchecked — or `nil` when the attribute is missing or not numeric.
+    static func intValue(of element: AXUIElement) -> Int? {
+        copyAttribute(valueAttribute, of: element) as? Int
     }
 
     /// Presses the element (`AXPress`), i.e. clicks a button without
