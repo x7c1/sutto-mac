@@ -83,6 +83,13 @@ distribution signing or notarization.
    - Two `"Sutto Dev"` entries (the assistant was run twice) → `codesign`
      will refuse the name as ambiguous; delete one of the duplicates in
      Keychain Access.
+   - Every build shows a password dialog — “codesign wants to sign using
+     key "Sutto Dev" in your keychain” → click **Always Allow** once
+     (clicking plain Allow re-prompts on every build). If the dialog keeps
+     coming back, open the private key in Keychain Access (login keychain →
+     Keys category → the `Sutto Dev` key) → **Access Control** → select
+     “Allow all applications to access this item”. The key is a
+     development-only self-signed key, so this is safe.
 
 ### Usage
 
