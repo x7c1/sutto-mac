@@ -148,13 +148,18 @@ public struct MiniaturePanelModel: Equatable, Sendable {
     ///   filter are dropped (`filterEnabledSpaces` in the GNOME
     ///   `ui/main-panel/index.ts`).
     /// - The displays rendered per space come from
-    ///   ``PanelDisplayArrangement/resolve(screens:displayCount:)``; every
-    ///   space in the collection shows the same display arrangement.
+    ///   ``PanelDisplayArrangement/resolve(screens:displayCount:environments:)``,
+    ///   consulting `environments` — the stored monitor environments —
+    ///   when the collection references more displays than are connected;
+    ///   every space in the collection shows the same display arrangement.
     /// - Layouts whose expressions fail to parse are skipped rather than
     ///   failing the whole panel: collections are user-editable JSON, and
     ///   one bad expression should not blank the panel. (The placement
     ///   path logs the same condition when such a layout is applied.)
-    public static func make(collection: SpaceCollection, screens: [Screen]) -> MiniaturePanelModel {
+    public static func make(
+        collection: SpaceCollection, screens: [Screen],
+        environments: [MonitorEnvironment] = []
+    ) -> MiniaturePanelModel {
         let enabledRows = collection.rows
             .map { $0.spaces.filter(\.enabled) }
             .filter { !$0.isEmpty }
@@ -164,7 +169,7 @@ public struct MiniaturePanelModel: Equatable, Sendable {
             1
         )
         let arrangement = PanelDisplayArrangement.resolve(
-            screens: screens, displayCount: displayCount)
+            screens: screens, displayCount: displayCount, environments: environments)
 
         return MiniaturePanelModel(
             rows: enabledRows.map { spaces in
@@ -282,16 +287,18 @@ public struct MiniaturePanelModel: Equatable, Sendable {
 /// are actually connected right now.
 ///
 /// This is the macOS counterpart of `getMonitorsForRendering` in the GNOME
-/// `operations/monitor/monitor-environment-operations.ts`, minus the stored
-/// monitor environments (Monitor Environment tracking is deferred within
-/// v0.3):
+/// `operations/monitor/monitor-environment-operations.ts`:
 ///
 /// - When the collection's display count matches the connected screens,
 ///   the real screens are used, in their real relative arrangement.
-/// - Otherwise a synthetic arrangement is built: `displayCount` displays of
-///   the primary screen's size, side by side (the GNOME fallback), with
-///   the keys beyond the connected count marked disconnected — those
-///   render grayed out and non-clickable.
+/// - Otherwise the stored monitor environments are consulted: the most
+///   recently active environment with that display count supplies the real
+///   geometry the setup had when last seen, with the keys beyond the
+///   connected count marked disconnected — those render grayed out and
+///   non-clickable.
+/// - With no matching environment a synthetic arrangement is built:
+///   `displayCount` displays of the primary screen's size, side by side
+///   (the GNOME fallback), disconnected keys marked the same way.
 public struct PanelDisplayArrangement: Equatable, Sendable {
     /// One display of the arrangement.
     public struct Display: Equatable, Sendable {
@@ -338,8 +345,11 @@ public struct PanelDisplayArrangement: Equatable, Sendable {
 
     /// Resolves the arrangement for a collection made for `displayCount`
     /// displays on the currently connected `screens` (AppKit coordinates,
-    /// primary first — the ``…/ScreenProviding`` order).
-    public static func resolve(screens: [Screen], displayCount: Int) -> PanelDisplayArrangement {
+    /// primary first — the ``…/ScreenProviding`` order), consulting the
+    /// stored monitor `environments` when the counts disagree.
+    public static func resolve(
+        screens: [Screen], displayCount: Int, environments: [MonitorEnvironment] = []
+    ) -> PanelDisplayArrangement {
         if screens.count == displayCount, let primary = screens.first {
             let displays = screens.enumerated().map { index, screen in
                 Display(
@@ -355,7 +365,32 @@ public struct PanelDisplayArrangement: Equatable, Sendable {
             return PanelDisplayArrangement(displays: displays)
         }
 
-        // Count mismatch (or no screens at all): synthesize displayCount
+        // Count mismatch: prefer a stored environment that was seen with
+        // exactly displayCount monitors — the GNOME
+        // `findEnvironmentForCollection`, most recently active first — so
+        // the miniature shows the real geometry that setup had, not a
+        // synthetic row. Keys beyond the connected screens render
+        // disconnected (`inactiveMonitorKeys` in the GNOME original).
+        let candidates = environments.filter { $0.monitors.count == displayCount }
+        if let environment = candidates.max(by: { $0.lastActiveAt < $1.lastActiveAt }) {
+            let displays = environment.monitors
+                .sorted { $0.index < $1.index }
+                .map { monitor in
+                    Display(
+                        key: PanelDisplayKey.key(forScreenAt: monitor.index),
+                        // Stored geometry is already top-left-origin; see
+                        // ``Monitor``.
+                        frame: monitor.geometry,
+                        workAreaWidth: monitor.workArea.width,
+                        workAreaHeight: monitor.workArea.height,
+                        isPrimary: monitor.isPrimary,
+                        isConnected: monitor.index < screens.count
+                    )
+                }
+            return PanelDisplayArrangement(displays: displays)
+        }
+
+        // No environment either (or no screens at all): synthesize displayCount
         // displays of the primary screen's size, side by side — the GNOME
         // fallback when no stored environment matches.
         let referenceFrame =

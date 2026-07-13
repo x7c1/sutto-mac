@@ -1,3 +1,4 @@
+import Foundation
 import SuttoDomain
 import Testing
 
@@ -10,11 +11,15 @@ import Testing
         StubScreenProvider.screen(width: 1920, height: 1080)
     ])
 
+    private let environmentRepository = InMemoryMonitorEnvironmentRepository()
+
     private func makeUseCase() -> ActivePanelModelUseCase {
         ActivePanelModelUseCase(
             repository: repository,
             preferences: preferences,
-            screens: screens
+            screens: screens,
+            environment: MonitorEnvironmentUseCase(
+                screens: screens, repository: environmentRepository, preferences: preferences)
         )
     }
 
@@ -253,5 +258,70 @@ import Testing
         let dual = useCase.panelModel()
         #expect(
             dual.rows.first?.spaces.first?.displays.map(\.isConnected) == [true, true])
+    }
+
+    /// A collection made for a detached setup renders with the geometry
+    /// that setup had when last seen — the stored monitor environments
+    /// reach the model through the use case, the way the GNOME panel
+    /// consults `getMonitorsForRendering`.
+    @Test func rendersADetachedSetupFromItsStoredEnvironment() throws {
+        let group = LayoutGroup(
+            name: "dual",
+            layouts: [
+                Layout(
+                    label: "Full",
+                    position: LayoutPosition(x: "0", y: "0"),
+                    size: LayoutSize(width: "100%", height: "100%")
+                )
+            ]
+        )
+        let collection = SpaceCollection(
+            id: .generate(),
+            name: "Dual",
+            rows: [
+                SpacesRow(spaces: [
+                    Space(id: .generate(), enabled: true, displays: ["0": group, "1": group])
+                ])
+            ]
+        )
+        try repository.saveCustomCollections([collection])
+        preferences.storedActiveCollectionId = collection.id
+
+        // The two-display setup was seen before: a *stacked* arrangement,
+        // distinguishable from the side-by-side synthesis fallback.
+        let stacked = [
+            Monitor(
+                index: 0,
+                geometry: PixelRect(x: 0, y: 900, width: 1920, height: 1080),
+                workArea: PixelRect(x: 0, y: 925, width: 1920, height: 1055),
+                isPrimary: true
+            ),
+            Monitor(
+                index: 1,
+                geometry: PixelRect(x: 0, y: 0, width: 1600, height: 900),
+                workArea: PixelRect(x: 0, y: 25, width: 1600, height: 875),
+                isPrimary: false
+            ),
+        ]
+        environmentRepository.storedStorage = MonitorEnvironmentStorage(
+            environments: [
+                MonitorEnvironment(
+                    id: MonitorEnvironmentId.generate(for: stacked),
+                    monitors: stacked,
+                    lastActiveCollectionId: collection.id,
+                    lastActiveAt: Date()
+                )
+            ],
+            currentId: ""
+        )
+
+        let space = try #require(makeUseCase().panelModel().rows.first?.spaces.first)
+
+        // Stacked, not side by side: the frames overlap horizontally.
+        let first = try #require(space.displays.first)
+        let second = try #require(space.displays.last)
+        #expect(second.frame.x < first.frame.maxX)
+        #expect(second.frame.maxY <= first.frame.y + 0.001)
+        #expect(space.displays.map(\.isConnected) == [true, false])
     }
 }

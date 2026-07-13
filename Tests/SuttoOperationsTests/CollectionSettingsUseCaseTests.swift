@@ -10,10 +10,13 @@ import Testing
     private let screens = StubScreenProvider(screens: [
         StubScreenProvider.screen(width: 1920, height: 1080)
     ])
+    private let environmentRepository = InMemoryMonitorEnvironmentRepository()
+    private let environment: MonitorEnvironmentUseCase
 
     private var useCase: CollectionSettingsUseCase {
         CollectionSettingsUseCase(
-            repository: repository, preferences: preferences, screens: screens)
+            repository: repository, preferences: preferences, screens: screens,
+            environment: environment)
     }
 
     private var standardPreset: SpaceCollection { repository.presetCollections[0] }
@@ -24,6 +27,11 @@ import Testing
             PresetGenerator.generate(monitorCount: 1, monitorType: .standard),
             PresetGenerator.generate(monitorCount: 1, monitorType: .wide),
         ]
+        environment = MonitorEnvironmentUseCase(
+            screens: screens, repository: environmentRepository, preferences: preferences)
+        // A detected current environment, so selections have somewhere to
+        // be recorded — the launch step the app performs.
+        environment.activateEnvironmentForCurrentScreens()
     }
 
     private func addCollection(name: String) throws -> SpaceCollection {
@@ -90,6 +98,19 @@ import Testing
         #expect(useCase.entries().map(\.isActive) == [false, true])
     }
 
+    /// A selection is also recorded against the current monitor
+    /// environment, so returning to this display setup later restores it.
+    @Test func selectingRecordsTheCollectionForTheCurrentEnvironment() throws {
+        let work = try addCollection(name: "Work")
+
+        useCase.select(
+            CollectionSettingsEntry(kind: .custom(work.id), name: "Work", isActive: false))
+
+        #expect(
+            environmentRepository.storedStorage?.currentEnvironment?.lastActiveCollectionId
+                == work.id)
+    }
+
     // MARK: - Deletion
 
     @Test func deletesACustomCollection() throws {
@@ -111,6 +132,21 @@ import Testing
 
         #expect(preferences.storedActiveCollectionId == nil)
         #expect(useCase.entries().first?.isActive == true)
+    }
+
+    /// Deleting the active collection also clears the current
+    /// environment's memory of it — a dead id must not be restored on the
+    /// next environment switch.
+    @Test func deletingTheActiveCollectionClearsTheEnvironmentRecord() throws {
+        let work = try addCollection(name: "Work")
+        preferences.storedActiveCollectionId = work.id
+        environment.recordActiveCollection(work.id)
+
+        try useCase.deleteCollection(work.id)
+
+        #expect(
+            environmentRepository.storedStorage?.currentEnvironment?.lastActiveCollectionId
+                == nil)
     }
 
     @Test func deletingAnInactiveCollectionKeepsTheActiveOne() throws {

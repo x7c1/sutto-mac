@@ -52,11 +52,17 @@ import Testing
         // Fresh instances over the same storage stand in for a restart.
         let reopenedRepository = FileSpaceCollectionRepository(directory: directory)
         let reopenedPreferences = UserDefaultsPreferencesRepository(defaults: defaults)
+        let environment = MonitorEnvironmentUseCase(
+            screens: screens,
+            repository: FileMonitorEnvironmentRepository(directory: directory),
+            preferences: reopenedPreferences
+        )
 
         let panelModel = ActivePanelModelUseCase(
             repository: reopenedRepository,
             preferences: reopenedPreferences,
-            screens: screens
+            screens: screens,
+            environment: environment
         )
 
         // Importing adds without activating (as in GNOME): the panel still
@@ -76,7 +82,8 @@ import Testing
         let settings = CollectionSettingsUseCase(
             repository: reopenedRepository,
             preferences: reopenedPreferences,
-            screens: screens
+            screens: screens,
+            environment: environment
         )
         let importedEntry = try #require(
             settings.entries().first { $0.kind == .custom(imported.id) })

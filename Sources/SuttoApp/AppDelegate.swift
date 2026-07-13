@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: SettingsWindowController?
     private var hotKeys: CarbonHotKeyRegistrar?
     private var panelShortcut: PanelShortcutUseCase?
+    private var screenObserver: ScreenParametersObserver?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // LSUIElement in Info.plist already keeps the app out of the Dock;
@@ -46,6 +47,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         let preferences = UserDefaultsPreferencesRepository()
 
+        // Monitor environments: every physical display setup is identified
+        // and remembers the collection the user activated in it, GNOME's
+        // Monitor Environment feature. Detecting at launch either restores
+        // the current setup's collection or, on the very first run,
+        // migrates the pre-existing single active-collection preference
+        // into this environment's record.
+        let monitorEnvironment = MonitorEnvironmentUseCase(
+            screens: screens,
+            repository: FileMonitorEnvironmentRepository(
+                directory: FileSpaceCollectionRepository.defaultDirectory()
+            ),
+            preferences: preferences
+        )
+        monitorEnvironment.activateEnvironmentForCurrentScreens()
+
         // Generate the presets for the current monitor configuration once
         // at launch, then again whenever the panel or the settings open —
         // the same ensure-on-open the GNOME version runs, so plugging in a
@@ -59,7 +75,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let panelModel = ActivePanelModelUseCase(
             repository: collections,
             preferences: preferences,
-            screens: screens
+            screens: screens,
+            environment: monitorEnvironment
         )
 
         let panel = LayoutPanel(
@@ -93,7 +110,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             collections: CollectionSettingsUseCase(
                 repository: collections,
                 preferences: preferences,
-                screens: screens
+                screens: screens,
+                environment: monitorEnvironment
             ),
             layoutImport: LayoutImportController(
                 importCollection: ImportCollectionUseCase(
@@ -121,6 +139,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onTogglePanel: { togglePanel.toggle() },
             onOpenSettings: presentSettings
         )
+
+        // Monitor hot-plug (and arrangement/resolution changes): re-detect
+        // the environment — restoring that setup's collection — make sure
+        // the presets for the new monitor count exist, and refresh whatever
+        // is on screen. The GNOME controller does the same on the shell's
+        // monitors-changed signal (re-detect + re-show the panel).
+        screenObserver = ScreenParametersObserver { [weak panel, weak settings] in
+            monitorEnvironment.activateEnvironmentForCurrentScreens()
+            presetGenerator.ensurePresetsForCurrentMonitors()
+            if let panel, panel.isVisible {
+                panel.show()
+            }
+            settings?.refreshIfVisible()
+        }
 
         if permission.shouldPresentOnboarding() {
             let onboarding = PermissionOnboarding(permission: permission)
