@@ -27,15 +27,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // development, where no Info.plist is present.
         NSApp.setActivationPolicy(.accessory)
 
+        // An accessory app never shows a menu bar, but NSApp.mainMenu is
+        // still the key-equivalent routing table: without it ⌘W cannot
+        // close the settings window, ⌘Q cannot quit, and ⌘C/⌘V would be
+        // dead in any text field the app ever grows. This menu exists
+        // purely for that routing — nothing here is ever visible.
+        NSApp.mainMenu = Self.makeMainMenu()
+
         let screens = SystemScreenProvider()
 
         // Selecting a layout snaps the frontmost app's focused window. The
         // layout panel is a non-activating NSPanel, so the app that was
         // frontmost when the panel appeared is still frontmost when the
-        // button is clicked — placement targets that app's window.
+        // button is clicked — placement targets that app's window. The
+        // same AX adapter also feeds the panel's positioning (the panel
+        // opens centered over that window).
+        let windowController = AXWindowController()
         let placement = WindowPlacementUseCase(
             permission: AccessibilityPermissionChecker(),
-            windows: AXWindowController(),
+            windows: windowController,
             screens: screens
         )
         // Collections persist under Application Support, the active
@@ -72,11 +82,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         presetGenerator.ensurePresetsForCurrentMonitors()
 
+        // The panel's structural geometry comes from the UI layer's design
+        // tokens (the one file where every tunable design value lives) and
+        // is injected here; the model output carries it to the drawn
+        // stacks and the keyboard navigator alike.
+        let panelMetrics = PanelMetrics.structural
+
         let panelModel = ActivePanelModelUseCase(
             repository: collections,
             preferences: preferences,
             screens: screens,
-            environment: monitorEnvironment
+            environment: monitorEnvironment,
+            metrics: panelMetrics
         )
 
         let panel = LayoutPanel(
@@ -92,7 +109,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         on display \(event.displayKey, privacy: .public)
                         """)
                 placement.place(event.layout, onDisplayKey: event.displayKey)
-            }
+            },
+            position: PanelPositionUseCase(
+                windows: windowController,
+                screens: screens
+            )
         )
         layoutPanel = panel
 
@@ -111,7 +132,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 repository: collections,
                 preferences: preferences,
                 screens: screens,
-                environment: monitorEnvironment
+                environment: monitorEnvironment,
+                metrics: panelMetrics
             ),
             layoutImport: LayoutImportController(
                 importCollection: ImportCollectionUseCase(
@@ -161,6 +183,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// The invisible main menu that gives the accessory app standard
+    /// key-equivalent routing (see the call site).
+    ///
+    /// - Close (⌘W) is nil-targeted `performClose:`, so it travels the
+    ///   key window's responder chain: the settings window (`.closable`)
+    ///   closes exactly like its red close button, keeping the
+    ///   single-instance show-or-focus behavior; the layout panel is a
+    ///   borderless non-closable panel, so `performClose:` refuses it —
+    ///   ⌘W never dismisses the panel (Escape remains its close key).
+    /// - Quit (⌘Q) works from any key window while the app is active —
+    ///   the standard accessory-app behavior.
+    /// - The Edit block wires the standard text-editing selectors so
+    ///   ⌘X/⌘C/⌘V/⌘A work in any current or future text field — the
+    ///   classic LSUIElement gotcha (no menu, no editing equivalents).
+    ///
+    /// While the shortcut-capture field is capturing, these equivalents
+    /// are *capturable* as combos rather than triggering the menu: the
+    /// key window's view hierarchy gets `performKeyEquivalent` before
+    /// AppKit falls through to the main menu, and the field consumes the
+    /// press there.
+    private static func makeMainMenu() -> NSMenu {
+        let main = NSMenu()
+
+        let appMenu = NSMenu()
+        appMenu.addItem(
+            withTitle: "Quit Sutto",
+            action: #selector(NSApplication.terminate(_:)),
+            keyEquivalent: "q"
+        )
+        main.addItem(submenu: appMenu)
+
+        let fileMenu = NSMenu(title: "File")
+        fileMenu.addItem(
+            withTitle: "Close",
+            action: #selector(NSWindow.performClose(_:)),
+            keyEquivalent: "w"
+        )
+        main.addItem(submenu: fileMenu)
+
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(
+            withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(
+            withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(
+            withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(
+            withTitle: "Select All",
+            action: #selector(NSText.selectAll(_:)),
+            keyEquivalent: "a"
+        )
+        main.addItem(submenu: editMenu)
+
+        return main
+    }
+
     /// Wires and registers the global panel-toggle shortcut: the captured
     /// combo from preferences, or `KeyCombo.defaultTogglePanel` when none
     /// was captured. The returned use case also serves the settings window,
@@ -187,5 +265,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 )
         }
         return shortcut
+    }
+}
+
+extension NSMenu {
+    /// Adds a top-level item carrying `submenu` — the menu-bar shape
+    /// AppKit expects (every top-level item wraps a submenu), without the
+    /// item-title boilerplate that would never be seen anyway.
+    fileprivate func addItem(submenu: NSMenu) {
+        let item = NSMenuItem()
+        item.submenu = submenu
+        addItem(item)
     }
 }

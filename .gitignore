@@ -12,3 +12,6 @@ DerivedData/
 
 # Temporary files
 .tmp/
+
+# Per-machine make settings
+local.mk

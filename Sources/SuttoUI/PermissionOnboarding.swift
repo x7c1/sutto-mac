@@ -104,7 +104,7 @@ public final class PermissionOnboarding {
                 This window closes automatically once permission is granted.
                 """
         )
-        body.preferredMaxLayoutWidth = 360
+        body.preferredMaxLayoutWidth = SettingsMetrics.hintWidth
 
         let requestButton = NSButton(
             title: "Request Permission",
@@ -121,13 +121,14 @@ public final class PermissionOnboarding {
 
         let buttonRow = NSStackView(views: [settingsButton, requestButton])
         buttonRow.orientation = .horizontal
-        buttonRow.spacing = 8
+        buttonRow.spacing = SettingsMetrics.controlSpacing
 
         let stack = NSStackView(views: [headline, body, buttonRow])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 12
-        stack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
+        stack.spacing = SettingsMetrics.groupSpacing
+        let inset = SettingsMetrics.contentInset
+        stack.edgeInsets = NSEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
 
         window.contentView = stack
         window.setContentSize(stack.fittingSize)

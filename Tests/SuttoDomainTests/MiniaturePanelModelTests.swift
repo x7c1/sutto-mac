@@ -44,6 +44,23 @@ import Testing
         abs(value - expected) < 0.001
     }
 
+    // MARK: - Metrics baseline
+
+    /// The default metrics are the documented baseline every hand-computed
+    /// expectation in this suite assumes (240x100 miniature limits, 6pt
+    /// margin/space gap, 10pt row gap, 16pt inset). The app injects its
+    /// own instance from the UI design tokens; this pin catches accidental
+    /// drift of the shared baseline.
+    @Test func defaultMetricsCarryTheDocumentedBaseline() {
+        let metrics = MiniaturePanelModel.Metrics.default
+        #expect(metrics.maxDisplayWidth == 240)
+        #expect(metrics.maxDisplayHeight == 100)
+        #expect(metrics.displayMargin == 6)
+        #expect(metrics.spaceSpacing == 6)
+        #expect(metrics.rowSpacing == 10)
+        #expect(metrics.contentInset == 16)
+    }
+
     // MARK: - Single display
 
     @Test func scalesTheRealScreenGeometryIntoTheMiniature() throws {
@@ -79,6 +96,50 @@ import Testing
         #expect(right.frame == PixelRect(x: 86, y: 0, width: 86, height: 94))
         #expect(left.layout.label == "Left Half")
         #expect(right.layout.label == "Right Half")
+    }
+
+    /// Tiling layouts stay adjacent after rounding, whatever fractional
+    /// width the display scales to. Regression test for the visible seam
+    /// gaps: with per-term rounding (each position and size rounded on its
+    /// own), a 992x1000 screen scales to a 93.2-point display where
+    /// `0.25w = 23.3` — the second column ended at `23 + 23 = 46` while
+    /// the third started at `round(46.6) = 47`, leaving a one-point gap of
+    /// display background between tiles. Rounding the combined edges makes
+    /// every shared edge agree by construction.
+    @Test func tilingRegionsShareEdgesOnFractionallyScaledDisplays() throws {
+        let grid = LayoutGroup(
+            name: "columns",
+            layouts: (0..<4).map { column in
+                Layout(
+                    label: "Column \(column + 1)",
+                    position: LayoutPosition(x: "\(column * 25)%", y: "0"),
+                    size: LayoutSize(width: "25%", height: "100%")
+                )
+            }
+        )
+        let collection = makeCollection(spaces: [makeSpace(displays: ["0": grid])])
+        // Height 1000 makes the height limit win (scale 0.1), so the
+        // display is 992 * 0.1 - 6 = 93.2 points wide.
+        let screen = Screen(
+            frame: PixelRect(x: 0, y: 0, width: 992, height: 1000),
+            visibleFrame: PixelRect(x: 0, y: 0, width: 992, height: 975)
+        )
+
+        let model = MiniaturePanelModel.make(collection: collection, screens: [screen])
+
+        let display = try #require(model.rows.first?.spaces.first?.displays.first)
+        let regions = display.regions
+        try #require(regions.count == 4)
+        for (left, right) in zip(regions, regions.dropFirst()) {
+            #expect(
+                left.frame.maxX == right.frame.x,
+                "\(left.layout.label) ends at \(left.frame.maxX) but \(right.layout.label) starts at \(right.frame.x)"
+            )
+        }
+        // The last column's edge stays on the display (never past the
+        // mask that would clip its border).
+        let last = try #require(regions.last)
+        #expect(last.frame.maxX <= display.frame.width)
     }
 
     /// Absolute pixel expressions shrink with the miniature: 960px on a
@@ -216,11 +277,15 @@ import Testing
 
         for space in model.rows.flatMap(\.spaces) {
             for display in space.displays {
-                #expect(display.frame.width <= MiniaturePanelModel.Metrics.maxDisplayWidth)
-                #expect(display.frame.height <= MiniaturePanelModel.Metrics.maxDisplayHeight)
+                #expect(
+                    display.frame.width <= MiniaturePanelModel.Metrics.default.maxDisplayWidth)
+                #expect(
+                    display.frame.height <= MiniaturePanelModel.Metrics.default.maxDisplayHeight)
                 // Every display sits inside the container, margin included.
-                #expect(display.frame.x >= MiniaturePanelModel.Metrics.displayMargin - 0.001)
-                #expect(display.frame.y >= MiniaturePanelModel.Metrics.displayMargin - 0.001)
+                #expect(
+                    display.frame.x >= MiniaturePanelModel.Metrics.default.displayMargin - 0.001)
+                #expect(
+                    display.frame.y >= MiniaturePanelModel.Metrics.default.displayMargin - 0.001)
                 #expect(display.frame.maxX <= space.width + 0.001)
                 #expect(display.frame.maxY <= space.height + 0.001)
             }

@@ -61,6 +61,7 @@ public final class LayoutPanel {
 
     private let model: ActivePanelModelUseCase
     private let selection: LayoutSelectionUseCase
+    private let position: PanelPositionUseCase
     private var panel: OverlayPanel?
     private var renderedModel: MiniaturePanelModel?
 
@@ -83,9 +84,14 @@ public final class LayoutPanel {
     /// monitor that is never removed keeps firing — and leaks).
     private var mouseMonitors: [Any] = []
 
-    public init(model: ActivePanelModelUseCase, selection: LayoutSelectionUseCase) {
+    public init(
+        model: ActivePanelModelUseCase,
+        selection: LayoutSelectionUseCase,
+        position: PanelPositionUseCase
+    ) {
         self.model = model
         self.selection = selection
+        self.position = position
     }
 
     /// Whether the panel is currently on screen.
@@ -93,17 +99,24 @@ public final class LayoutPanel {
         panel?.isVisible ?? false
     }
 
-    /// Shows the panel centered on the screen containing the mouse pointer
-    /// (falling back to the main screen), and gives it key status so Escape
-    /// works. Showing does not activate the app.
+    /// Shows the panel centered over the frontmost app's focused window,
+    /// pushed back inside that screen's work area when the window sits
+    /// near an edge — the GNOME shortcut path (`showAtWindowCenter`).
+    /// Without a readable focused window (none exists, or the
+    /// Accessibility permission is missing) it falls back to centering on
+    /// the screen containing the mouse pointer (then the main screen).
+    /// The panel gets key status so Escape works; showing does not
+    /// activate the app.
     public func show() {
         let panel = self.panel ?? makePanel()
         self.panel = panel
         renderContentIfNeeded(in: panel)
 
-        if let screen = screenWithMouse() {
+        let size = panel.frame.size
+        if let frame = position.panelFrame(width: size.width, height: size.height) {
+            panel.setFrameOrigin(NSPoint(x: frame.x, y: frame.y))
+        } else if let screen = screenWithMouse() {
             let visible = screen.visibleFrame
-            let size = panel.frame.size
             panel.setFrameOrigin(
                 NSPoint(
                     x: visible.midX - size.width / 2,
@@ -150,6 +163,12 @@ public final class LayoutPanel {
         panel.level = .popUpMenu
         panel.isOpaque = false
         panel.backgroundColor = .clear
+        // The panel is invariably dark, like the GNOME panel: the palette
+        // is fixed, and forcing the appearance keeps the few semantic
+        // colors (the empty-state label) resolving against dark no matter
+        // the system setting. The settings window, by contrast, stays
+        // system-adaptive — product identity here, OS nativeness there.
+        panel.appearance = NSAppearance(named: .darkAqua)
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.onCancel = { [weak self] in
@@ -254,17 +273,74 @@ public final class LayoutPanel {
             let rowStack = NSStackView(views: miniatures)
             rowStack.orientation = .horizontal
             rowStack.alignment = .top
-            rowStack.spacing = MiniaturePanelModel.Metrics.spaceSpacing
+            // Stack gaps come from the model's own metrics — the same
+            // instance the keyboard navigator reconstructs frames from,
+            // so drawn and navigated geometry cannot diverge.
+            rowStack.spacing = model.metrics.spaceSpacing
             return rowStack
         }
 
         let stack = NSStackView(views: rowViews.isEmpty ? [makeEmptyLabel()] : rowViews)
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = MiniaturePanelModel.Metrics.rowSpacing
-        let inset = MiniaturePanelModel.Metrics.contentInset
+        stack.spacing = model.metrics.rowSpacing
+        let inset = model.metrics.contentInset
         stack.edgeInsets = NSEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
+
+        // The footer bar under the rows — GNOME's `createFooter`, shown in
+        // the empty state too (the GNOME container always appends it after
+        // the rows element). Its custom top gap is the GNOME footer margin,
+        // tighter than the row spacing; pinning the trailing edge stretches
+        // the footer to the width of the widest row, so the label centering
+        // and the right-aligned gear span the whole panel.
+        if let lastView = stack.arrangedSubviews.last {
+            stack.setCustomSpacing(PanelMetrics.footerMarginTop, after: lastView)
+        }
+        let footer = makeFooter()
+        stack.addArrangedSubview(footer)
+        footer.trailingAnchor.constraint(
+            equalTo: stack.trailingAnchor, constant: -inset
+        ).isActive = true
         return stack
+    }
+
+    /// The footer: a centered app-name label and a right-aligned settings
+    /// gear (the GNOME footer's spacer/label/button row; AppKit centers
+    /// the label absolutely, so no balancing left spacer is needed).
+    ///
+    /// The gear is deliberately *not* part of the keyboard navigation:
+    /// the GNOME navigator traverses only the layout buttons, and the
+    /// settings shortcut (⌘,) already covers the keyboard path — the
+    /// gear mirrors that and stays mouse-only.
+    private func makeFooter() -> NSView {
+        let footer = NSView()
+        footer.translatesAutoresizingMaskIntoConstraints = false
+
+        let label = NSTextField(labelWithString: "Sutto")
+        label.font = .systemFont(ofSize: PanelMetrics.footerLabelFontSize)
+        label.textColor = PanelPalette.footerText
+        label.translatesAutoresizingMaskIntoConstraints = false
+        // Decorative branding; the panel window is already named.
+        label.setAccessibilityElement(false)
+
+        let gear = FooterSettingsButton { [weak self] in
+            // The GNOME gear opens preferences and hides in the same
+            // gesture (`openPreferences(); hide()`) — the exact pairing of
+            // the ⌘, path, including landing on the last-used tab.
+            self?.hide()
+            self?.onOpenSettings?()
+        }
+
+        footer.addSubview(label)
+        footer.addSubview(gear)
+        NSLayoutConstraint.activate([
+            footer.heightAnchor.constraint(equalToConstant: PanelMetrics.footerHeight),
+            label.centerXAnchor.constraint(equalTo: footer.centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
+            gear.trailingAnchor.constraint(equalTo: footer.trailingAnchor),
+            gear.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
+        ])
+        return footer
     }
 
     /// Indexes a space miniature's region buttons by navigator coordinate,
@@ -285,12 +361,12 @@ public final class LayoutPanel {
     /// matching the GNOME panel's "No spaces available" message.
     private func makeEmptyLabel() -> NSTextField {
         let label = NSTextField(labelWithString: "No spaces available")
-        label.font = .systemFont(ofSize: 13)
+        label.font = .systemFont(ofSize: PanelMetrics.emptyLabelFontSize)
         label.textColor = .secondaryLabelColor
         return label
     }
 
-    private func makeBackground(containing stack: NSStackView) -> NSVisualEffectView {
+    private func makeBackground(containing stack: NSStackView) -> NSView {
         // The background doubles as the whole-panel hover surface for
         // auto-hide: its tracking area spans the full panel bounds, so
         // moving between the region buttons (which carry their own
@@ -305,12 +381,15 @@ public final class LayoutPanel {
             guard let self else { return }
             self.apply(self.autoHide.cursorExited())
         }
-        background.material = .hudWindow
-        background.blendingMode = .behindWindow
-        background.state = .active
+        // GNOME's flat, slightly translucent dark with its hairline rim —
+        // a plain layer color, deliberately not a blurred vibrancy
+        // material (see ``PanelPalette``).
         background.wantsLayer = true
-        background.layer?.cornerRadius = 12
+        background.layer?.backgroundColor = PanelPalette.panelBackground.cgColor
+        background.layer?.cornerRadius = PanelMetrics.panelCornerRadius
         background.layer?.masksToBounds = true
+        background.layer?.borderColor = PanelPalette.panelBorder.cgColor
+        background.layer?.borderWidth = PanelMetrics.panelBorderWidth
 
         stack.translatesAutoresizingMaskIntoConstraints = false
         background.addSubview(stack)
@@ -411,10 +490,105 @@ public final class LayoutPanel {
     }
 }
 
+/// The footer's settings gear: a template SF Symbol tinted with the
+/// footer text color, with the GNOME gear's hover fill (a faint rounded
+/// highlight). The AppKit counterpart of the `sutto-settings-icon` button
+/// in the GNOME `createFooter` — `gearshape` standing in for
+/// `preferences-system-symbolic`.
+///
+/// Exposed to accessibility as a button titled "Settings" so the e2e
+/// harness (and VoiceOver) can find and press it.
+private final class FooterSettingsButton: NSButton {
+    private let onClick: () -> Void
+    private var isHovered = false
+
+    init(onClick: @escaping () -> Void) {
+        self.onClick = onClick
+        super.init(frame: .zero)
+
+        isBordered = false
+        setButtonType(.momentaryChange)
+        if let gear = NSImage(
+            systemSymbolName: "gearshape",
+            accessibilityDescription: "Settings"
+        ) {
+            gear.isTemplate = true
+            image = gear.withSymbolConfiguration(
+                NSImage.SymbolConfiguration(
+                    pointSize: PanelMetrics.footerIconSize, weight: .regular))
+        }
+        contentTintColor = PanelPalette.footerText
+        toolTip = "Settings"
+
+        wantsLayer = true
+        layer?.cornerRadius = PanelMetrics.footerButtonCornerRadius
+
+        translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(
+                equalToConstant: PanelMetrics.footerIconSize
+                    + PanelMetrics.footerButtonHorizontalPadding * 2),
+            heightAnchor.constraint(
+                equalToConstant: PanelMetrics.footerIconSize
+                    + PanelMetrics.footerButtonVerticalPadding * 2),
+        ])
+
+        target = self
+        action = #selector(clicked)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("FooterSettingsButton does not support NSCoder")
+    }
+
+    /// The title the harness looks up; the visible button is icon-only.
+    override func accessibilityTitle() -> String? {
+        "Settings"
+    }
+
+    // MARK: - Hover feedback
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas where area.owner === self {
+            removeTrackingArea(area)
+        }
+        addTrackingArea(
+            NSTrackingArea(
+                rect: .zero,
+                options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            ))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        applyStyle()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        applyStyle()
+    }
+
+    private func applyStyle() {
+        layer?.backgroundColor =
+            isHovered
+            ? PanelPalette.footerButtonHoverBackground.cgColor
+            : NSColor.clear.cgColor
+    }
+
+    @objc private func clicked() {
+        onClick()
+    }
+}
+
 /// The panel background with a whole-panel hover tracking area, reporting
 /// enter/exit to the auto-hide policy — the AppKit counterpart of the
 /// enter/leave events GNOME connects on its panel container.
-private final class HoverTrackingBackgroundView: NSVisualEffectView {
+private final class HoverTrackingBackgroundView: NSView {
     var onMouseEntered: (() -> Void)?
     var onMouseExited: (() -> Void)?
 

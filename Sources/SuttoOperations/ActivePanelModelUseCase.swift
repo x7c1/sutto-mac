@@ -23,17 +23,24 @@ public final class ActivePanelModelUseCase {
     private let preferences: any PreferencesRepository
     private let screens: any ScreenProviding
     private let environment: MonitorEnvironmentUseCase
+    private let metrics: MiniaturePanelModel.Metrics
 
+    /// - Parameter metrics: The structural panel geometry; the composition
+    ///   root injects the UI layer's tuned instance (DesignTokens'
+    ///   `PanelMetrics.structural`) so all design values stay editable in
+    ///   one file.
     public init(
         repository: any SpaceCollectionRepository,
         preferences: any PreferencesRepository,
         screens: any ScreenProviding,
-        environment: MonitorEnvironmentUseCase
+        environment: MonitorEnvironmentUseCase,
+        metrics: MiniaturePanelModel.Metrics = .default
     ) {
         self.repository = repository
         self.preferences = preferences
         self.screens = screens
         self.environment = environment
+        self.metrics = metrics
     }
 
     /// The model the panel should render right now. Empty (no rows) when
@@ -46,12 +53,13 @@ public final class ActivePanelModelUseCase {
     /// dimmed.
     public func panelModel() -> MiniaturePanelModel {
         guard let collection = activeCollection() else {
-            return MiniaturePanelModel(rows: [])
+            return MiniaturePanelModel(rows: [], metrics: metrics)
         }
         return MiniaturePanelModel.make(
             collection: collection,
             screens: screens.screens(),
-            environments: environment.storedEnvironments()
+            environments: environment.storedEnvironments(),
+            metrics: metrics
         )
     }
 

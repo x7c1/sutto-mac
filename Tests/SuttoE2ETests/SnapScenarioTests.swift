@@ -300,10 +300,13 @@ struct SnapScenarioTests {
             labeled: leftHalf.label, inDisplay: Self.primaryDisplayLabel, of: sutto)
 
         // The panel window is the one exposing the region; aim just left
-        // of it. The panel opens centered on the screen's visible frame,
-        // so a point 40 px past its left edge, vertically centered, stays
-        // clear of the menu bar and the Dock — whatever is under it (the
-        // desktop, the helper window) receives a harmless click.
+        // of it. The panel opens centered over the focused window (the
+        // helper's), clamped inside the work area with a 10 px padding, so
+        // a point 40 px past its left edge, vertically centered, stays
+        // clear of the menu bar and the Dock; if the panel is pinned at
+        // the left padding the click lands at the screen edge, still
+        // outside the panel — whatever is under it (the desktop, the
+        // helper window) receives a harmless click.
         let panelWindow = try await waitFor("the layout panel window") {
             AXClient.windows(ofPID: sutto.pid).first {
                 AXClient.button(titled: leftHalf.label, under: $0) != nil

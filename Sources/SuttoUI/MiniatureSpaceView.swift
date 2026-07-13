@@ -1,26 +1,25 @@
 import AppKit
 import SuttoDomain
 
-/// Fixed colors for the miniature panel content. The panel background is
-/// an `NSVisualEffectView` with the `hudWindow` material, which is dark in
-/// both system appearances, so these do not react to the appearance — the
-/// same fixed dark palette the GNOME panel uses (`ui/constants.ts`).
-enum MiniaturePalette {
-    static let spaceBackground = NSColor.white.withAlphaComponent(0.08)
-    static let displayBackground = NSColor.black.withAlphaComponent(0.35)
-    static let regionBackground = NSColor.white.withAlphaComponent(0.15)
-    static let regionBackgroundHovered = NSColor.white.withAlphaComponent(0.30)
-    static let regionBorder = NSColor.white.withAlphaComponent(0.30)
-    static let regionBorderHovered = NSColor.white.withAlphaComponent(0.60)
-    static let regionBorderFocused = NSColor.white.withAlphaComponent(0.90)
-    static let regionLabel = NSColor.white.withAlphaComponent(0.90)
-    static let menuBarStrip = NSColor(white: 0.8, alpha: 0.9)
-    static let displayNumber = NSColor.white.withAlphaComponent(0.90)
-    static let displayNumberBackground = NSColor.black.withAlphaComponent(0.60)
-
-    /// Opacity for displays that are not connected right now, mirroring
-    /// `INACTIVE_OPACITY` (100/255) in the GNOME miniature display.
-    static let disconnectedAlpha: CGFloat = 0.4
+/// Rounds a model rect to whole-point *edges* for rendering. The domain
+/// geometry is exact and stays that way; only the views snap to the pixel
+/// grid, and they must all snap the same way —
+/// rounding each edge (rather than origin and size independently) keeps
+/// adjacent regions seamless and, crucially, lands the rightmost/bottom
+/// region edge exactly on the display miniature's own rounded edge.
+///
+/// Without this, the scaled geometry is fractional (a 1920x1080 display
+/// scales to a 177.78pt-wide miniature), so a 1px region border on the
+/// display's far edge rasterizes into two half-covered pixel columns and
+/// the display's `masksToBounds` cuts the outer one at the fractional
+/// boundary — the right border faded to near-invisible while the left
+/// border, at integral x = 0, stayed crisp.
+private func integralEdges(_ rect: PixelRect) -> NSRect {
+    let x = rect.x.rounded()
+    let y = rect.y.rounded()
+    let maxX = rect.maxX.rounded()
+    let maxY = rect.maxY.rounded()
+    return NSRect(x: x, y: y, width: maxX - x, height: maxY - y)
 }
 
 /// One space's miniature: all displays in their physical arrangement, as
@@ -56,8 +55,8 @@ final class MiniatureSpaceView: NSView {
         }
         super.init(frame: NSRect(x: 0, y: 0, width: space.width, height: space.height))
         wantsLayer = true
-        layer?.backgroundColor = MiniaturePalette.spaceBackground.cgColor
-        layer?.cornerRadius = 6
+        layer?.backgroundColor = PanelPalette.spaceBackground.cgColor
+        layer?.cornerRadius = PanelMetrics.spaceCornerRadius
 
         translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -103,13 +102,13 @@ final class MiniatureDisplayView: NSView {
                 onClick: onRegionClicked
             )
         }
-        super.init(
-            frame: NSRect(
-                x: display.frame.x, y: display.frame.y,
-                width: display.frame.width, height: display.frame.height))
+        // Pixel-aligned like the regions inside (see `integralEdges`): the
+        // display's mask edge and the outermost regions' edges must land
+        // on the same whole-point grid or the mask clips their borders.
+        super.init(frame: integralEdges(display.frame))
         wantsLayer = true
-        layer?.backgroundColor = MiniaturePalette.displayBackground.cgColor
-        layer?.cornerRadius = 4
+        layer?.backgroundColor = PanelPalette.displayBackground.cgColor
+        layer?.cornerRadius = PanelMetrics.displayCornerRadius
         layer?.masksToBounds = true
 
         for button in regionButtons {
@@ -122,9 +121,12 @@ final class MiniatureDisplayView: NSView {
         // settings) marks the primary monitor.
         if display.isPrimary {
             let strip = NSView(
-                frame: NSRect(x: 0, y: 0, width: display.frame.width, height: 3))
+                frame: NSRect(
+                    x: 0, y: 0,
+                    width: frame.width,  // the pixel-aligned width, not the model's
+                    height: PanelMetrics.menuBarStripHeight))
             strip.wantsLayer = true
-            strip.layer?.backgroundColor = MiniaturePalette.menuBarStrip.cgColor
+            strip.layer?.backgroundColor = PanelPalette.menuBarStrip.cgColor
             addSubview(strip)
         }
 
@@ -135,7 +137,7 @@ final class MiniatureDisplayView: NSView {
         if !display.isConnected {
             // Grayed out and (via the buttons' isEnabled above)
             // non-clickable, like the GNOME panel's inactive monitors.
-            alphaValue = MiniaturePalette.disconnectedAlpha
+            alphaValue = PanelPalette.disconnectedAlpha
         }
 
         setAccessibilityElement(true)
@@ -165,15 +167,17 @@ final class MiniatureDisplayView: NSView {
     ) -> NSTextField {
         let number = PanelDisplayKey.screenIndex(for: display.key).map { $0 + 1 }
         let label = NSTextField(labelWithString: number.map(String.init) ?? display.key)
-        label.font = .systemFont(ofSize: 9, weight: .bold)
-        label.textColor = MiniaturePalette.displayNumber
+        label.font = .systemFont(ofSize: PanelMetrics.displayBadgeFontSize, weight: .bold)
+        label.textColor = PanelPalette.displayNumber
         label.wantsLayer = true
-        label.layer?.backgroundColor = MiniaturePalette.displayNumberBackground.cgColor
-        label.layer?.cornerRadius = 2
+        label.layer?.backgroundColor = PanelPalette.displayNumberBackground.cgColor
+        label.layer?.cornerRadius = PanelMetrics.displayBadgeCornerRadius
         label.alignment = .center
         label.sizeToFit()
-        let size = NSSize(width: label.frame.width + 6, height: label.frame.height)
-        let margin: CGFloat = 3
+        let size = NSSize(
+            width: label.frame.width + PanelMetrics.displayBadgeHorizontalPadding,
+            height: label.frame.height)
+        let margin = PanelMetrics.displayBadgeMargin
         label.frame = NSRect(
             x: margin,
             y: frame.height - size.height - margin,
@@ -187,9 +191,15 @@ final class MiniatureDisplayView: NSView {
 }
 
 /// A clickable layout region inside a display miniature: a bordered shape
-/// proportional to the real layout, labeled when the text fits and always
-/// carrying a tooltip. The AppKit counterpart of the GNOME
+/// proportional to the real layout. The AppKit counterpart of the GNOME
 /// `createLayoutButton`.
+///
+/// The region draws no text, like the GNOME button (whose `layout.label`
+/// is never rendered): users pick layouts visually from the region shapes,
+/// and drawn names added noise — with the fit-based appear/disappear
+/// making them look inconsistent besides. The layout name survives as a
+/// tooltip (a mac-only nicety GNOME lacks) and as the accessibility
+/// title.
 ///
 /// Hover feedback follows the GNOME style priority (hover beats the normal
 /// style; the selected state arrives with layout history, deferred within
@@ -205,6 +215,9 @@ final class MiniatureDisplayView: NSView {
 /// intact. The focused style shares the hover background (in GNOME the two
 /// styles are identical) but carries a brighter, thicker border so the
 /// keyboard position stays distinguishable next to a hover highlight.
+///
+/// Exposed to accessibility as a button titled with the layout label —
+/// keyboard navigation and the e2e harness depend on the title.
 final class LayoutRegionButton: NSButton {
     let layout: Layout
     let displayKey: String
@@ -218,12 +231,6 @@ final class LayoutRegionButton: NSButton {
     private let onClick: (LayoutSelectedEvent) -> Void
     private var isHovered = false
 
-    private static let borderWidth: CGFloat = 1
-    private static let focusedBorderWidth: CGFloat = 2
-
-    private static let labelFont = NSFont.systemFont(ofSize: 10)
-    private static let labelPadding: CGFloat = 4
-
     init(
         region: MiniaturePanelModel.Region,
         displayKey: String,
@@ -232,30 +239,20 @@ final class LayoutRegionButton: NSButton {
         self.layout = region.layout
         self.displayKey = displayKey
         self.onClick = onClick
-        super.init(
-            frame: NSRect(
-                x: region.frame.x, y: region.frame.y,
-                width: region.frame.width, height: region.frame.height))
+        // Pixel-aligned edges (see `integralEdges`): a fractional frame
+        // renders the 1px border half-covered, and on the display's far
+        // edges the mask then swallows it entirely.
+        super.init(frame: integralEdges(region.frame))
 
         isBordered = false
         setButtonType(.momentaryChange)
         wantsLayer = true
-        layer?.cornerRadius = 2
+        layer?.cornerRadius = PanelMetrics.regionCornerRadius
         applyStyle()
 
-        title = Self.fits(label: layout.label, in: frame.size) ? layout.label : ""
-        if !title.isEmpty {
-            let style = NSMutableParagraphStyle()
-            style.alignment = .center
-            style.lineBreakMode = .byClipping
-            attributedTitle = NSAttributedString(
-                string: layout.label,
-                attributes: [
-                    .font: Self.labelFont,
-                    .foregroundColor: MiniaturePalette.regionLabel,
-                    .paragraphStyle: style,
-                ])
-        }
+        // No drawn text (see the type comment); the name lives in the
+        // tooltip and the accessibility title.
+        title = ""
         toolTip = layout.label
 
         target = self
@@ -267,7 +264,7 @@ final class LayoutRegionButton: NSButton {
         fatalError("LayoutRegionButton does not support NSCoder")
     }
 
-    /// The layout label, whether or not the visible text fit the region.
+    /// The layout label; the visible button is a plain shape.
     override func accessibilityTitle() -> String? {
         layout.label
     }
@@ -307,29 +304,23 @@ final class LayoutRegionButton: NSButton {
     private func applyStyle() {
         layer?.backgroundColor =
             (isHovered || isKeyboardFocused
-            ? MiniaturePalette.regionBackgroundHovered
-            : MiniaturePalette.regionBackground).cgColor
+            ? PanelPalette.regionBackgroundHovered
+            : PanelPalette.regionBackground).cgColor
         layer?.borderColor =
             (isKeyboardFocused
-            ? MiniaturePalette.regionBorderFocused
+            ? PanelPalette.regionBorderFocused
             : isHovered
-                ? MiniaturePalette.regionBorderHovered
-                : MiniaturePalette.regionBorder).cgColor
-        layer?.borderWidth = isKeyboardFocused ? Self.focusedBorderWidth : Self.borderWidth
+                ? PanelPalette.regionBorderHovered
+                : PanelPalette.regionBorder).cgColor
+        layer?.borderWidth =
+            isKeyboardFocused
+            ? PanelMetrics.regionFocusedBorderWidth
+            : PanelMetrics.regionBorderWidth
     }
 
     // MARK: - Click
 
     @objc private func clicked() {
         onClick(LayoutSelectedEvent(layout: layout, displayKey: displayKey))
-    }
-
-    // MARK: - Label fitting
-
-    private static func fits(label: String, in size: NSSize) -> Bool {
-        let text = label as NSString
-        let bounds = text.size(withAttributes: [.font: labelFont])
-        return bounds.width + labelPadding <= size.width
-            && bounds.height <= size.height
     }
 }

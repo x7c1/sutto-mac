@@ -102,44 +102,74 @@ public struct MiniaturePanelModel: Equatable, Sendable {
     /// GNOME panel after filtering).
     public let rows: [Row]
 
-    public init(rows: [Row]) {
+    /// The metrics this model was built with. The panel's stacks and the
+    /// keyboard navigator both read them *from the model output* rather
+    /// than from any global, which is what guarantees the drawn geometry
+    /// and the navigated geometry agree: there is exactly one instance,
+    /// and it traveled through ``make(collection:screens:environments:metrics:)``
+    /// into everything derived from the model.
+    public let metrics: Metrics
+
+    public init(rows: [Row], metrics: Metrics = .default) {
         self.rows = rows
+        self.metrics = metrics
     }
 
-    /// Sizing rules shared with the GNOME version's `ui/constants.ts`.
-    public enum Metrics {
+    /// The panel's structural geometry: how spaces scale into miniatures
+    /// and how the miniatures stack. A plain value the composition root
+    /// injects — the app supplies its tuned instance from the UI layer's
+    /// design-tokens file (`DesignTokens.swift`, `PanelMetrics.structural`),
+    /// so every tunable design value is editable in that one file; the
+    /// memberwise defaults carry the same documented baseline for tests
+    /// and default construction.
+    public struct Metrics: Equatable, Sendable {
         /// Maximum width of the widest display in a miniature
-        /// (`MAX_MONITOR_DISPLAY_WIDTH`).
-        public static let maxDisplayWidth: Double = 240
+        /// (GNOME `MAX_MONITOR_DISPLAY_WIDTH`).
+        public var maxDisplayWidth: Double
 
         /// Maximum height of the tallest display in a miniature
-        /// (`MAX_MONITOR_DISPLAY_HEIGHT`).
-        public static let maxDisplayHeight: Double = 100
+        /// (GNOME `MAX_MONITOR_DISPLAY_HEIGHT`).
+        public var maxDisplayHeight: Double
 
         /// Margin around each display within a space miniature
-        /// (`MONITOR_MARGIN`).
-        public static let displayMargin: Double = 6
-
-        /// Fallback display size when no screen is attached
-        /// (`DEFAULT_MONITOR_WIDTH`/`HEIGHT` in the GNOME domain).
-        public static let fallbackDisplaySize = (width: 1920.0, height: 1080.0)
+        /// (GNOME `MONITOR_MARGIN`).
+        public var displayMargin: Double
 
         /// Horizontal gap between the space miniatures of a row. Shared by
         /// the panel's row stacks and ``MiniaturePanelNavigator``, which
         /// reconstructs whole-panel region frames from it — the two must
         /// agree or keyboard focus would navigate a different geometry than
-        /// the one drawn.
-        public static let spaceSpacing: Double = 6
+        /// the one drawn (see ``MiniaturePanelModel/metrics``).
+        public var spaceSpacing: Double
 
         /// Vertical gap between rows. Shared with the navigator like
         /// ``spaceSpacing``.
-        public static let rowSpacing: Double = 10
+        public var rowSpacing: Double
 
         /// Padding between the panel edge and the miniatures. A uniform
         /// translation of everything, so the navigator's relative geometry
-        /// is unaffected; kept here so the panel's metrics live in one
-        /// place.
-        public static let contentInset: Double = 16
+        /// is unaffected.
+        public var contentInset: Double
+
+        public init(
+            maxDisplayWidth: Double = 240,
+            maxDisplayHeight: Double = 100,
+            displayMargin: Double = 6,
+            spaceSpacing: Double = 6,
+            rowSpacing: Double = 10,
+            contentInset: Double = 16
+        ) {
+            self.maxDisplayWidth = maxDisplayWidth
+            self.maxDisplayHeight = maxDisplayHeight
+            self.displayMargin = displayMargin
+            self.spaceSpacing = spaceSpacing
+            self.rowSpacing = rowSpacing
+            self.contentInset = contentInset
+        }
+
+        /// The documented baseline (the values above); what tests build
+        /// against, and what callers get when nothing is injected.
+        public static let `default` = Metrics()
     }
 
     /// Builds the model for `collection` on the given screens.
@@ -158,7 +188,8 @@ public struct MiniaturePanelModel: Equatable, Sendable {
     ///   path logs the same condition when such a layout is applied.)
     public static func make(
         collection: SpaceCollection, screens: [Screen],
-        environments: [MonitorEnvironment] = []
+        environments: [MonitorEnvironment] = [],
+        metrics: Metrics = .default
     ) -> MiniaturePanelModel {
         let enabledRows = collection.rows
             .map { $0.spaces.filter(\.enabled) }
@@ -173,8 +204,12 @@ public struct MiniaturePanelModel: Equatable, Sendable {
 
         return MiniaturePanelModel(
             rows: enabledRows.map { spaces in
-                Row(spaces: spaces.map { miniature(for: $0, arrangement: arrangement) })
-            }
+                Row(
+                    spaces: spaces.map {
+                        miniature(for: $0, arrangement: arrangement, metrics: metrics)
+                    })
+            },
+            metrics: metrics
         )
     }
 
@@ -186,10 +221,10 @@ public struct MiniaturePanelModel: Equatable, Sendable {
     /// settings preview from the same geometry — the two surfaces must
     /// render identical miniatures.
     static func miniature(
-        for space: Space, arrangement: PanelDisplayArrangement
+        for space: Space, arrangement: PanelDisplayArrangement, metrics: Metrics
     ) -> SpaceMiniature {
         let displays = arrangement.displays
-        let margin = Metrics.displayMargin
+        let margin = metrics.displayMargin
 
         // Scale so the largest display fits the miniature limits
         // (space-dimensions.ts: scale from the largest referenced monitor;
@@ -197,8 +232,8 @@ public struct MiniaturePanelModel: Equatable, Sendable {
         // because every space renders the full arrangement).
         let maxWidth = displays.map(\.frame.width).max() ?? 0
         let maxHeight = displays.map(\.frame.height).max() ?? 0
-        let scaleByWidth = maxWidth > 0 ? min(Metrics.maxDisplayWidth / maxWidth, 1.0) : 1.0
-        let scaleByHeight = maxHeight > 0 ? min(Metrics.maxDisplayHeight / maxHeight, 1.0) : 1.0
+        let scaleByWidth = maxWidth > 0 ? min(metrics.maxDisplayWidth / maxWidth, 1.0) : 1.0
+        let scaleByHeight = maxHeight > 0 ? min(metrics.maxDisplayHeight / maxHeight, 1.0) : 1.0
         let scale = min(scaleByWidth, scaleByHeight)
 
         // Bounding box of the arrangement, in real (unscaled) coordinates.
@@ -269,18 +304,39 @@ public struct MiniaturePanelModel: Equatable, Sendable {
                 let height = evaluate(
                     layout.size.height, container: displayFrame.height, screen: workAreaHeight)
             else { return nil }
+
+            // Round the region's *edges* to whole pixels, not its position
+            // and size independently. Tiling layouts define adjacency
+            // through expressions (x = 25%, width = 25%, next x = 50%),
+            // and per-term rounding — GNOME's Math.round on every value,
+            // which `LayoutExpressionEvaluator.evaluate` mirrors — lets
+            // the accumulated edge (`round(0.25w) + round(0.25w)`) land a
+            // pixel away from the neighbor's own edge (`round(0.5w)`) on
+            // fractionally scaled displays, drawing a visible background
+            // gap between tiles that should touch (a deliberate fix over
+            // GNOME, whose miniatures carry the same seam artifact).
+            // Rounding both tiles' shared edge from the same exact value
+            // makes adjacency survive rounding by construction.
+            let minX = LayoutExpressionEvaluator.roundToPixel(x)
+            let minY = LayoutExpressionEvaluator.roundToPixel(y)
+            let maxX = LayoutExpressionEvaluator.roundToPixel(x + width)
+            let maxY = LayoutExpressionEvaluator.roundToPixel(y + height)
             return Region(
                 layout: layout,
-                frame: PixelRect(x: x, y: y, width: width, height: height)
+                frame: PixelRect(
+                    x: minX, y: minY, width: maxX - minX, height: maxY - minY)
             )
         }
     }
 
+    /// Evaluates an expression to an *unrounded* pixel value — the region
+    /// computation rounds combined edges instead of individual terms (see
+    /// the comment in ``regions(for:displayFrame:workAreaWidth:workAreaHeight:)``).
     private static func evaluate(
         _ expression: String, container: Double, screen: Double
     ) -> Double? {
         guard let parsed = try? LayoutExpressionParser.parse(expression) else { return nil }
-        return LayoutExpressionEvaluator.evaluate(
+        return LayoutExpressionEvaluator.evaluateUnrounded(
             parsed, containerSize: container, screenSize: screen)
     }
 }
@@ -346,6 +402,14 @@ public struct PanelDisplayArrangement: Equatable, Sendable {
         self.displays = displays
     }
 
+    /// Synthetic display frame when no screen is attached and no stored
+    /// environment matches (GNOME `DEFAULT_MONITOR_WIDTH`/`HEIGHT`). A
+    /// domain fallback rather than a design token: it never renders on a
+    /// machine with a real display, so it is deliberately not part of
+    /// ``MiniaturePanelModel/Metrics``.
+    private static let fallbackDisplayFrame = PixelRect(
+        x: 0, y: 0, width: 1920, height: 1080)
+
     /// Resolves the arrangement for a collection made for `displayCount`
     /// displays on the currently connected `screens` (AppKit coordinates,
     /// primary first — the ``…/ScreenProviding`` order), consulting the
@@ -397,12 +461,7 @@ public struct PanelDisplayArrangement: Equatable, Sendable {
         // displays of the primary screen's size, side by side — the GNOME
         // fallback when no stored environment matches.
         let referenceFrame =
-            screens.first?.frame
-            ?? PixelRect(
-                x: 0, y: 0,
-                width: MiniaturePanelModel.Metrics.fallbackDisplaySize.width,
-                height: MiniaturePanelModel.Metrics.fallbackDisplaySize.height
-            )
+            screens.first?.frame ?? fallbackDisplayFrame
         let referenceWorkArea = screens.first?.visibleFrame ?? referenceFrame
         let displays = (0..<displayCount).map { index in
             Display(
