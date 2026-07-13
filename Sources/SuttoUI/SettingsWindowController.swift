@@ -253,7 +253,7 @@ public final class SettingsWindowController {
 
         let row = NSStackView(views: [radio, delete])
         row.orientation = .horizontal
-        row.spacing = 12
+        row.spacing = SettingsMetrics.controlSpacing
         return row
     }
 
@@ -298,12 +298,12 @@ public final class SettingsWindowController {
         )
         collectionsHint.textColor = .secondaryLabelColor
         collectionsHint.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        collectionsHint.preferredMaxLayoutWidth = 360
+        collectionsHint.preferredMaxLayoutWidth = SettingsMetrics.hintWidth
 
         let rowsStack = NSStackView(views: [])
         rowsStack.orientation = .vertical
         rowsStack.alignment = .leading
-        rowsStack.spacing = 6
+        rowsStack.spacing = SettingsMetrics.rowSpacing
         collectionRowsStack = rowsStack
 
         let importButton = NSButton(
@@ -319,7 +319,7 @@ public final class SettingsWindowController {
         let listColumn = NSStackView(views: [rowsStack, importButton])
         listColumn.orientation = .vertical
         listColumn.alignment = .leading
-        listColumn.spacing = 12
+        listColumn.spacing = SettingsMetrics.groupSpacing
 
         let preview = NSStackView(views: [])
         preview.orientation = .vertical
@@ -333,7 +333,7 @@ public final class SettingsWindowController {
         ])
         collectionsBody.orientation = .horizontal
         collectionsBody.alignment = .top
-        collectionsBody.spacing = 16
+        collectionsBody.spacing = SettingsMetrics.columnSpacing
         // .top alignment leaves the separator's length undefined; run it
         // the full height of whichever column is taller.
         verticalSeparator.heightAnchor.constraint(
@@ -359,7 +359,7 @@ public final class SettingsWindowController {
             NSTextField(labelWithString: "Toggle panel:"), field, reset,
         ])
         shortcutRow.orientation = .horizontal
-        shortcutRow.spacing = 8
+        shortcutRow.spacing = SettingsMetrics.controlSpacing
 
         let stack = NSStackView(views: [
             collectionsHeader, collectionsHint, collectionsBody,
@@ -368,9 +368,10 @@ public final class SettingsWindowController {
         ])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 12
-        stack.setCustomSpacing(16, after: collectionsBody)
-        stack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
+        stack.spacing = SettingsMetrics.groupSpacing
+        stack.setCustomSpacing(SettingsMetrics.columnSpacing, after: collectionsBody)
+        let inset = SettingsMetrics.contentInset
+        stack.edgeInsets = NSEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
         rootStack = stack
 
         window.contentView = stack

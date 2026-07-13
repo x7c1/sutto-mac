@@ -285,7 +285,7 @@ public final class LayoutPanel {
     /// matching the GNOME panel's "No spaces available" message.
     private func makeEmptyLabel() -> NSTextField {
         let label = NSTextField(labelWithString: "No spaces available")
-        label.font = .systemFont(ofSize: 13)
+        label.font = .systemFont(ofSize: PanelMetrics.emptyLabelFontSize)
         label.textColor = .secondaryLabelColor
         return label
     }
@@ -309,7 +309,7 @@ public final class LayoutPanel {
         background.blendingMode = .behindWindow
         background.state = .active
         background.wantsLayer = true
-        background.layer?.cornerRadius = 12
+        background.layer?.cornerRadius = PanelMetrics.panelCornerRadius
         background.layer?.masksToBounds = true
 
         stack.translatesAutoresizingMaskIntoConstraints = false

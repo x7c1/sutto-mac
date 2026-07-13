@@ -28,7 +28,7 @@ final class ShortcutCaptureField: NSView {
         super.init(frame: .zero)
 
         wantsLayer = true
-        layer?.cornerRadius = 6
+        layer?.cornerRadius = SettingsMetrics.captureFieldCornerRadius
         layer?.borderWidth = 1
 
         label.alignment = .center
@@ -37,8 +37,9 @@ final class ShortcutCaptureField: NSView {
         NSLayoutConstraint.activate([
             label.centerXAnchor.constraint(equalTo: centerXAnchor),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
-            widthAnchor.constraint(greaterThanOrEqualToConstant: 140),
-            heightAnchor.constraint(equalToConstant: 24),
+            widthAnchor.constraint(
+                greaterThanOrEqualToConstant: SettingsMetrics.captureFieldMinWidth),
+            heightAnchor.constraint(equalToConstant: SettingsMetrics.captureFieldHeight),
             label.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -16),
         ])
         refreshAppearance()

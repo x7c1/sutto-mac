@@ -1,28 +1,6 @@
 import AppKit
 import SuttoDomain
 
-/// Fixed colors for the miniature panel content. The panel background is
-/// an `NSVisualEffectView` with the `hudWindow` material, which is dark in
-/// both system appearances, so these do not react to the appearance — the
-/// same fixed dark palette the GNOME panel uses (`ui/constants.ts`).
-enum MiniaturePalette {
-    static let spaceBackground = NSColor.white.withAlphaComponent(0.08)
-    static let displayBackground = NSColor.black.withAlphaComponent(0.35)
-    static let regionBackground = NSColor.white.withAlphaComponent(0.15)
-    static let regionBackgroundHovered = NSColor.white.withAlphaComponent(0.30)
-    static let regionBorder = NSColor.white.withAlphaComponent(0.30)
-    static let regionBorderHovered = NSColor.white.withAlphaComponent(0.60)
-    static let regionBorderFocused = NSColor.white.withAlphaComponent(0.90)
-    static let regionLabel = NSColor.white.withAlphaComponent(0.90)
-    static let menuBarStrip = NSColor(white: 0.8, alpha: 0.9)
-    static let displayNumber = NSColor.white.withAlphaComponent(0.90)
-    static let displayNumberBackground = NSColor.black.withAlphaComponent(0.60)
-
-    /// Opacity for displays that are not connected right now, mirroring
-    /// `INACTIVE_OPACITY` (100/255) in the GNOME miniature display.
-    static let disconnectedAlpha: CGFloat = 0.4
-}
-
 /// One space's miniature: all displays in their physical arrangement, as
 /// computed by ``SuttoDomain/MiniaturePanelModel``. The AppKit counterpart
 /// of the GNOME `createMiniatureSpaceView`.
@@ -56,8 +34,8 @@ final class MiniatureSpaceView: NSView {
         }
         super.init(frame: NSRect(x: 0, y: 0, width: space.width, height: space.height))
         wantsLayer = true
-        layer?.backgroundColor = MiniaturePalette.spaceBackground.cgColor
-        layer?.cornerRadius = 6
+        layer?.backgroundColor = PanelPalette.spaceBackground.cgColor
+        layer?.cornerRadius = PanelMetrics.spaceCornerRadius
 
         translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -108,8 +86,8 @@ final class MiniatureDisplayView: NSView {
                 x: display.frame.x, y: display.frame.y,
                 width: display.frame.width, height: display.frame.height))
         wantsLayer = true
-        layer?.backgroundColor = MiniaturePalette.displayBackground.cgColor
-        layer?.cornerRadius = 4
+        layer?.backgroundColor = PanelPalette.displayBackground.cgColor
+        layer?.cornerRadius = PanelMetrics.displayCornerRadius
         layer?.masksToBounds = true
 
         for button in regionButtons {
@@ -122,9 +100,12 @@ final class MiniatureDisplayView: NSView {
         // settings) marks the primary monitor.
         if display.isPrimary {
             let strip = NSView(
-                frame: NSRect(x: 0, y: 0, width: display.frame.width, height: 3))
+                frame: NSRect(
+                    x: 0, y: 0,
+                    width: display.frame.width,
+                    height: PanelMetrics.menuBarStripHeight))
             strip.wantsLayer = true
-            strip.layer?.backgroundColor = MiniaturePalette.menuBarStrip.cgColor
+            strip.layer?.backgroundColor = PanelPalette.menuBarStrip.cgColor
             addSubview(strip)
         }
 
@@ -135,7 +116,7 @@ final class MiniatureDisplayView: NSView {
         if !display.isConnected {
             // Grayed out and (via the buttons' isEnabled above)
             // non-clickable, like the GNOME panel's inactive monitors.
-            alphaValue = MiniaturePalette.disconnectedAlpha
+            alphaValue = PanelPalette.disconnectedAlpha
         }
 
         setAccessibilityElement(true)
@@ -165,15 +146,17 @@ final class MiniatureDisplayView: NSView {
     ) -> NSTextField {
         let number = PanelDisplayKey.screenIndex(for: display.key).map { $0 + 1 }
         let label = NSTextField(labelWithString: number.map(String.init) ?? display.key)
-        label.font = .systemFont(ofSize: 9, weight: .bold)
-        label.textColor = MiniaturePalette.displayNumber
+        label.font = .systemFont(ofSize: PanelMetrics.displayBadgeFontSize, weight: .bold)
+        label.textColor = PanelPalette.displayNumber
         label.wantsLayer = true
-        label.layer?.backgroundColor = MiniaturePalette.displayNumberBackground.cgColor
-        label.layer?.cornerRadius = 2
+        label.layer?.backgroundColor = PanelPalette.displayNumberBackground.cgColor
+        label.layer?.cornerRadius = PanelMetrics.displayBadgeCornerRadius
         label.alignment = .center
         label.sizeToFit()
-        let size = NSSize(width: label.frame.width + 6, height: label.frame.height)
-        let margin: CGFloat = 3
+        let size = NSSize(
+            width: label.frame.width + PanelMetrics.displayBadgeHorizontalPadding,
+            height: label.frame.height)
+        let margin = PanelMetrics.displayBadgeMargin
         label.frame = NSRect(
             x: margin,
             y: frame.height - size.height - margin,
@@ -218,10 +201,10 @@ final class LayoutRegionButton: NSButton {
     private let onClick: (LayoutSelectedEvent) -> Void
     private var isHovered = false
 
-    private static let borderWidth: CGFloat = 1
-    private static let focusedBorderWidth: CGFloat = 2
+    private static let labelFont = NSFont.systemFont(ofSize: PanelMetrics.regionLabelFontSize)
 
-    private static let labelFont = NSFont.systemFont(ofSize: 10)
+    /// Horizontal slack required around the label for it to count as
+    /// fitting the region (see `fits(label:in:)`).
     private static let labelPadding: CGFloat = 4
 
     init(
@@ -240,7 +223,7 @@ final class LayoutRegionButton: NSButton {
         isBordered = false
         setButtonType(.momentaryChange)
         wantsLayer = true
-        layer?.cornerRadius = 2
+        layer?.cornerRadius = PanelMetrics.regionCornerRadius
         applyStyle()
 
         title = Self.fits(label: layout.label, in: frame.size) ? layout.label : ""
@@ -252,7 +235,7 @@ final class LayoutRegionButton: NSButton {
                 string: layout.label,
                 attributes: [
                     .font: Self.labelFont,
-                    .foregroundColor: MiniaturePalette.regionLabel,
+                    .foregroundColor: PanelPalette.regionLabel,
                     .paragraphStyle: style,
                 ])
         }
@@ -307,15 +290,18 @@ final class LayoutRegionButton: NSButton {
     private func applyStyle() {
         layer?.backgroundColor =
             (isHovered || isKeyboardFocused
-            ? MiniaturePalette.regionBackgroundHovered
-            : MiniaturePalette.regionBackground).cgColor
+            ? PanelPalette.regionBackgroundHovered
+            : PanelPalette.regionBackground).cgColor
         layer?.borderColor =
             (isKeyboardFocused
-            ? MiniaturePalette.regionBorderFocused
+            ? PanelPalette.regionBorderFocused
             : isHovered
-                ? MiniaturePalette.regionBorderHovered
-                : MiniaturePalette.regionBorder).cgColor
-        layer?.borderWidth = isKeyboardFocused ? Self.focusedBorderWidth : Self.borderWidth
+                ? PanelPalette.regionBorderHovered
+                : PanelPalette.regionBorder).cgColor
+        layer?.borderWidth =
+            isKeyboardFocused
+            ? PanelMetrics.regionFocusedBorderWidth
+            : PanelMetrics.regionBorderWidth
     }
 
     // MARK: - Click
