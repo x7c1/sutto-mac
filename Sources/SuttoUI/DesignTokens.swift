@@ -30,14 +30,22 @@ import AppKit
 /// appearance — the same fixed dark palette the GNOME panel uses
 /// (`ui/constants.ts`). Each constant names its GNOME counterpart.
 enum PanelPalette {
+    /// The panel's hairline border (GNOME `PANEL_BORDER_COLOR`,
+    /// rgba(255,255,255,0.2)). GNOME draws it around `PANEL_BG_COLOR`;
+    /// here it rims the vibrancy material, which otherwise melts into
+    /// dark wallpapers.
+    static let panelBorder = NSColor.white.withAlphaComponent(0.2)
+
     /// A space miniature's fill (GNOME `MINIATURE_SPACE_BG_COLOR`,
     /// a raised gray over the panel background). Translucent white rather
-    /// than opaque gray so the vibrancy material shows through.
-    static let spaceBackground = NSColor.white.withAlphaComponent(0.08)
+    /// than opaque gray so the vibrancy material shows through; 0.10
+    /// approximates the GNOME lift of that gray over its panel color.
+    static let spaceBackground = NSColor.white.withAlphaComponent(0.10)
 
     /// A display miniature's fill (GNOME `DISPLAY_BG_COLOR`, near-black —
-    /// clearly darker than the space it sits on).
-    static let displayBackground = NSColor.black.withAlphaComponent(0.35)
+    /// clearly darker than the space it sits on; 0.45 keeps that
+    /// space/display contrast over the translucent space fill).
+    static let displayBackground = NSColor.black.withAlphaComponent(0.45)
 
     /// Layout region fill (GNOME `BUTTON_BG_COLOR`).
     static let regionBackground = NSColor.white.withAlphaComponent(0.15)
@@ -89,6 +97,10 @@ enum PanelMetrics {
     /// 12 is the macOS HUD convention (deliberate deviation).
     static let panelCornerRadius: CGFloat = 12
 
+    /// The panel background's hairline border width (GNOME draws a 1px
+    /// border around the panel).
+    static let panelBorderWidth: CGFloat = 1
+
     /// A space miniature's corner radius (GNOME `miniature-space.ts`,
     /// border-radius 6).
     static let spaceCornerRadius: CGFloat = 6
@@ -122,7 +134,7 @@ enum PanelMetrics {
     static let displayBadgeFontSize: CGFloat = 9
 
     /// Display number badge: corner radius (GNOME border-radius 3).
-    static let displayBadgeCornerRadius: CGFloat = 2
+    static let displayBadgeCornerRadius: CGFloat = 3
 
     /// Display number badge: horizontal padding added around the number
     /// (GNOME pads 6px per side at its larger font).

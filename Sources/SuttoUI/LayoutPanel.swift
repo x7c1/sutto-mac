@@ -311,6 +311,10 @@ public final class LayoutPanel {
         background.wantsLayer = true
         background.layer?.cornerRadius = PanelMetrics.panelCornerRadius
         background.layer?.masksToBounds = true
+        // The hairline rim the GNOME panel draws around its background;
+        // without it the vibrancy material melts into dark wallpapers.
+        background.layer?.borderColor = PanelPalette.panelBorder.cgColor
+        background.layer?.borderWidth = PanelMetrics.panelBorderWidth
 
         stack.translatesAutoresizingMaskIntoConstraints = false
         background.addSubview(stack)
