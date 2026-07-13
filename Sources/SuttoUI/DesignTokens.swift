@@ -126,9 +126,13 @@ enum PanelMetrics {
     /// border-radius 6).
     static let spaceCornerRadius: CGFloat = 6
 
-    /// A display miniature's corner radius (GNOME `miniature-display.ts`,
-    /// border-radius 4).
-    static let displayCornerRadius: CGFloat = 4
+    /// A display miniature's corner radius. Deliberate deviation from the
+    /// GNOME border-radius of 4: on-screen review at real miniature size
+    /// showed the rounding reading as missing/undrawn corners — the
+    /// regions inside run square to the display's edge, so a rounded
+    /// display clips them into notches instead of looking rounded. Square
+    /// corners restore the display outline.
+    static let displayCornerRadius: CGFloat = 0
 
     /// A layout region's corner radius (GNOME `layout-button.ts`,
     /// border-radius 2).
