@@ -46,7 +46,9 @@ final class LayoutsSettingsPane: NSViewController {
         previewStack = NSStackView(views: [])
         previewStack.orientation = .vertical
         previewStack.alignment = .leading
-        previewStack.spacing = MiniaturePanelModel.Metrics.rowSpacing
+        // Row spacing is re-derived from each preview model's own metrics
+        // in `rebuildPreview` — the same instance that shaped the
+        // miniatures.
 
         super.init(nibName: nil, bundle: nil)
         title = SettingsTab.layouts.title
@@ -203,6 +205,9 @@ final class LayoutsSettingsPane: NSViewController {
             return
         }
 
+        // The stack gaps mirror the panel's, from the metrics instance
+        // that shaped these miniatures (carried on the model output).
+        previewStack.spacing = model.panelMetrics.rowSpacing
         var spaceIndex = 0
         for row in model.rows {
             let toggles = row.spaces.map { entry -> NSView in
@@ -216,7 +221,7 @@ final class LayoutsSettingsPane: NSViewController {
             let rowStack = NSStackView(views: toggles)
             rowStack.orientation = .horizontal
             rowStack.alignment = .top
-            rowStack.spacing = MiniaturePanelModel.Metrics.spaceSpacing
+            rowStack.spacing = model.panelMetrics.spaceSpacing
             previewStack.addArrangedSubview(rowStack)
         }
     }

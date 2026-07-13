@@ -44,6 +44,23 @@ import Testing
         abs(value - expected) < 0.001
     }
 
+    // MARK: - Metrics baseline
+
+    /// The default metrics are the documented baseline every hand-computed
+    /// expectation in this suite assumes (240x100 miniature limits, 6pt
+    /// margin/space gap, 10pt row gap, 16pt inset). The app injects its
+    /// own instance from the UI design tokens; this pin catches accidental
+    /// drift of the shared baseline.
+    @Test func defaultMetricsCarryTheDocumentedBaseline() {
+        let metrics = MiniaturePanelModel.Metrics.default
+        #expect(metrics.maxDisplayWidth == 240)
+        #expect(metrics.maxDisplayHeight == 100)
+        #expect(metrics.displayMargin == 6)
+        #expect(metrics.spaceSpacing == 6)
+        #expect(metrics.rowSpacing == 10)
+        #expect(metrics.contentInset == 16)
+    }
+
     // MARK: - Single display
 
     @Test func scalesTheRealScreenGeometryIntoTheMiniature() throws {
@@ -260,11 +277,15 @@ import Testing
 
         for space in model.rows.flatMap(\.spaces) {
             for display in space.displays {
-                #expect(display.frame.width <= MiniaturePanelModel.Metrics.maxDisplayWidth)
-                #expect(display.frame.height <= MiniaturePanelModel.Metrics.maxDisplayHeight)
+                #expect(
+                    display.frame.width <= MiniaturePanelModel.Metrics.default.maxDisplayWidth)
+                #expect(
+                    display.frame.height <= MiniaturePanelModel.Metrics.default.maxDisplayHeight)
                 // Every display sits inside the container, margin included.
-                #expect(display.frame.x >= MiniaturePanelModel.Metrics.displayMargin - 0.001)
-                #expect(display.frame.y >= MiniaturePanelModel.Metrics.displayMargin - 0.001)
+                #expect(
+                    display.frame.x >= MiniaturePanelModel.Metrics.default.displayMargin - 0.001)
+                #expect(
+                    display.frame.y >= MiniaturePanelModel.Metrics.default.displayMargin - 0.001)
                 #expect(display.frame.maxX <= space.width + 0.001)
                 #expect(display.frame.maxY <= space.height + 0.001)
             }

@@ -44,9 +44,18 @@ public struct SpacePreviewModel: Equatable, Sendable {
     /// collection").
     public let rows: [Row]
 
-    public init(collectionId: CollectionId, rows: [Row]) {
+    /// The structural metrics the miniatures were built with, carried on
+    /// the output like ``MiniaturePanelModel/metrics`` so the settings
+    /// preview stacks read the exact instance that shaped the geometry.
+    public let panelMetrics: MiniaturePanelModel.Metrics
+
+    public init(
+        collectionId: CollectionId, rows: [Row],
+        panelMetrics: MiniaturePanelModel.Metrics = .default
+    ) {
         self.collectionId = collectionId
         self.rows = rows
+        self.panelMetrics = panelMetrics
     }
 
     /// Opacity rules shared with the GNOME preview (`ENABLED_OPACITY`,
@@ -90,7 +99,8 @@ public struct SpacePreviewModel: Equatable, Sendable {
     ///   connected screens, exactly like the panel.
     public static func make(
         collection: SpaceCollection, screens: [Screen],
-        environments: [MonitorEnvironment] = []
+        environments: [MonitorEnvironment] = [],
+        metrics: MiniaturePanelModel.Metrics = .default
     ) -> SpacePreviewModel {
         let rows = collection.rows
             .filter { !$0.spaces.isEmpty }
@@ -105,10 +115,11 @@ public struct SpacePreviewModel: Equatable, Sendable {
                         return Entry(
                             enabled: space.enabled,
                             miniature: MiniaturePanelModel.miniature(
-                                for: space, arrangement: arrangement)
+                                for: space, arrangement: arrangement, metrics: metrics)
                         )
                     })
             }
-        return SpacePreviewModel(collectionId: collection.id, rows: rows)
+        return SpacePreviewModel(
+            collectionId: collection.id, rows: rows, panelMetrics: metrics)
     }
 }

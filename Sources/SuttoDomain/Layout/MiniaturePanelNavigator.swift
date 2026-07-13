@@ -109,10 +109,14 @@ public struct MiniaturePanelNavigator: Equatable, Sendable {
                             ))
                     }
                 }
-                spaceX += space.width + MiniaturePanelModel.Metrics.spaceSpacing
+                // The stacking gaps come from the *model's own* metrics —
+                // the same instance the panel's stacks read — so the
+                // reconstructed geometry is the drawn geometry by
+                // construction, not by two sites agreeing on a constant.
+                spaceX += space.width + model.metrics.spaceSpacing
                 rowHeight = max(rowHeight, space.height)
             }
-            rowY += rowHeight + MiniaturePanelModel.Metrics.rowSpacing
+            rowY += rowHeight + model.metrics.rowSpacing
         }
         self.targets = targets
     }

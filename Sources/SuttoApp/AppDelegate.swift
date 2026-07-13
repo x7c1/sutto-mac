@@ -82,11 +82,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         presetGenerator.ensurePresetsForCurrentMonitors()
 
+        // The panel's structural geometry comes from the UI layer's design
+        // tokens (the one file where every tunable design value lives) and
+        // is injected here; the model output carries it to the drawn
+        // stacks and the keyboard navigator alike.
+        let panelMetrics = PanelMetrics.structural
+
         let panelModel = ActivePanelModelUseCase(
             repository: collections,
             preferences: preferences,
             screens: screens,
-            environment: monitorEnvironment
+            environment: monitorEnvironment,
+            metrics: panelMetrics
         )
 
         let panel = LayoutPanel(
@@ -125,7 +132,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 repository: collections,
                 preferences: preferences,
                 screens: screens,
-                environment: monitorEnvironment
+                environment: monitorEnvironment,
+                metrics: panelMetrics
             ),
             layoutImport: LayoutImportController(
                 importCollection: ImportCollectionUseCase(

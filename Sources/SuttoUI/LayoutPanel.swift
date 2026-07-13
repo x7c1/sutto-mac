@@ -273,15 +273,18 @@ public final class LayoutPanel {
             let rowStack = NSStackView(views: miniatures)
             rowStack.orientation = .horizontal
             rowStack.alignment = .top
-            rowStack.spacing = MiniaturePanelModel.Metrics.spaceSpacing
+            // Stack gaps come from the model's own metrics — the same
+            // instance the keyboard navigator reconstructs frames from,
+            // so drawn and navigated geometry cannot diverge.
+            rowStack.spacing = model.metrics.spaceSpacing
             return rowStack
         }
 
         let stack = NSStackView(views: rowViews.isEmpty ? [makeEmptyLabel()] : rowViews)
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = MiniaturePanelModel.Metrics.rowSpacing
-        let inset = MiniaturePanelModel.Metrics.contentInset
+        stack.spacing = model.metrics.rowSpacing
+        let inset = model.metrics.contentInset
         stack.edgeInsets = NSEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
 
         // The footer bar under the rows — GNOME's `createFooter`, shown in

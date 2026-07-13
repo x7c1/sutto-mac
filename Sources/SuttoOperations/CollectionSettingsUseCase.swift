@@ -23,18 +23,25 @@ public final class CollectionSettingsUseCase {
     private let preferences: any PreferencesRepository
     private let screens: any ScreenProviding
     private let environment: MonitorEnvironmentUseCase
+    private let metrics: MiniaturePanelModel.Metrics
     private let logger = Logger(subsystem: "io.github.x7c1.SuttoMac", category: "settings")
 
+    /// - Parameter metrics: The structural panel geometry for the space
+    ///   preview; the composition root injects the UI layer's tuned
+    ///   instance (DesignTokens' `PanelMetrics.structural`) — the same one
+    ///   the panel renders with, so the preview miniatures match the panel.
     public init(
         repository: any SpaceCollectionRepository,
         preferences: any PreferencesRepository,
         screens: any ScreenProviding,
-        environment: MonitorEnvironmentUseCase
+        environment: MonitorEnvironmentUseCase,
+        metrics: MiniaturePanelModel.Metrics = .default
     ) {
         self.repository = repository
         self.preferences = preferences
         self.screens = screens
         self.environment = environment
+        self.metrics = metrics
     }
 
     /// The rows the settings list shows, presets first, exactly one active.
@@ -85,7 +92,8 @@ public final class CollectionSettingsUseCase {
         return SpacePreviewModel.make(
             collection: collection,
             screens: screens.screens(),
-            environments: environment.storedEnvironments()
+            environments: environment.storedEnvironments(),
+            metrics: metrics
         )
     }
 

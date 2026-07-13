@@ -1,15 +1,18 @@
 import AppKit
+import SuttoDomain
 
 /// The one place where the UI's visual decisions live: colors, corner
 /// radii, border widths, font sizes, and spacing for both the layout panel
 /// and the settings window. Tweaking the look of either surface should be
 /// a matter of editing values here, not hunting literals across views.
 ///
-/// One documented exception: the panel's *structural* geometry —
-/// `contentInset` (panel edge to the miniatures), `spaceSpacing`, and
-/// `rowSpacing` — lives in `SuttoDomain.MiniaturePanelModel.Metrics`,
-/// because the keyboard navigator rebuilds the drawn geometry from those
-/// values and the two must agree. Tune them there.
+/// The panel's *structural* geometry (miniature scaling, stacking gaps,
+/// content inset) is also tuned here — ``PanelMetrics/structural`` — even
+/// though its type lives in `SuttoDomain`: the composition root injects
+/// that instance into the model-building use cases, the model output
+/// carries it, and both the drawn stacks and the keyboard navigator read
+/// it back from the model, so the geometry stays consistent however the
+/// values are tuned.
 ///
 /// Two vocabularies meet in this file, deliberately kept apart:
 ///
@@ -115,11 +118,33 @@ enum PanelPalette {
     static let footerButtonHoverBackground = NSColor.white.withAlphaComponent(0.1)
 }
 
-/// Panel dimensions that are purely visual (radii, borders, fonts, badge
-/// geometry). Everything here maps to the GNOME inline styles; the values
-/// keyboard navigation depends on live in
-/// `SuttoDomain.MiniaturePanelModel.Metrics` instead.
-enum PanelMetrics {
+/// Panel dimensions: the purely visual ones (radii, borders, fonts, badge
+/// geometry) as plain constants, and the structural geometry as the
+/// injected ``structural`` instance. Everything maps to the GNOME inline
+/// styles and `ui/constants.ts`.
+public enum PanelMetrics {
+    /// The panel's structural geometry, supplied to the domain at the
+    /// composition points (the model-building use cases in AppDelegate).
+    /// The domain type's defaults carry the same baseline for tests;
+    /// tune the app's actual look *here*.
+    public static let structural = MiniaturePanelModel.Metrics(
+        // Maximum size of the largest display in a miniature (GNOME
+        // MAX_MONITOR_DISPLAY_WIDTH / MAX_MONITOR_DISPLAY_HEIGHT).
+        maxDisplayWidth: 240,
+        maxDisplayHeight: 100,
+        // Margin around each display inside a space miniature (GNOME
+        // MONITOR_MARGIN).
+        displayMargin: 6,
+        // Gap between the space miniatures of a row (GNOME SPACE_SPACING).
+        spaceSpacing: 6,
+        // Vertical gap between rows (GNOME ROW_SPACING).
+        rowSpacing: 10,
+        // Padding between the panel edge and the miniatures. GNOME's
+        // PANEL_PADDING is 12; 16 breathes better inside the mac panel's
+        // 12pt corner radius (deliberate deviation).
+        contentInset: 16
+    )
+
     /// The panel background's corner radius. GNOME uses a squarer panel;
     /// 12 is the macOS HUD convention (deliberate deviation).
     static let panelCornerRadius: CGFloat = 12
