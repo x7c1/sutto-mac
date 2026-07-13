@@ -138,11 +138,11 @@ public enum PanelMetrics {
         // Gap between the space miniatures of a row (GNOME SPACE_SPACING).
         spaceSpacing: 6,
         // Vertical gap between rows (GNOME ROW_SPACING).
-        rowSpacing: 10,
+        rowSpacing: 6,
         // Padding between the panel edge and the miniatures. GNOME's
         // PANEL_PADDING is 12; 16 breathes better inside the mac panel's
         // 12pt corner radius (deliberate deviation).
-        contentInset: 16
+        contentInset: 7
     )
 
     /// The panel background's corner radius. GNOME uses a squarer panel;
@@ -259,6 +259,11 @@ enum SettingsMetrics {
     /// sparse tab (Shortcuts) does not collapse the window under its
     /// toolbar, and the per-tab resize stays mostly vertical.
     static let minPaneWidth: CGFloat = 440
+
+    /// The space preview well's corner radius: the rounded dark backdrop
+    /// behind the settings preview. Smaller than the panel's 12pt — the
+    /// well is an inset surface inside a window, not a floating panel.
+    static let previewWellCornerRadius: CGFloat = 8
 
     /// The shortcut capture field's fixed height (a standard control row).
     static let captureFieldHeight: CGFloat = 24

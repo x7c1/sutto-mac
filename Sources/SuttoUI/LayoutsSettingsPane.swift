@@ -87,7 +87,7 @@ final class LayoutsSettingsPane: NSViewController {
         listColumn.spacing = SettingsMetrics.groupSpacing
 
         let separator = makeVerticalSeparator()
-        let body = NSStackView(views: [listColumn, separator, previewStack])
+        let body = NSStackView(views: [listColumn, separator, makePreviewWell()])
         body.orientation = .horizontal
         body.alignment = .top
         body.spacing = SettingsMetrics.columnSpacing
@@ -252,6 +252,48 @@ final class LayoutsSettingsPane: NSViewController {
         row.orientation = .horizontal
         row.spacing = SettingsMetrics.controlSpacing
         return row
+    }
+
+    /// The dark well behind the space preview: a rounded surface filled
+    /// with the panel's own background color, so the miniatures composite
+    /// against the same base on both surfaces. The palette is translucent
+    /// (space fill rgba(80,80,80,0.9), region borders white 0.3, …), so
+    /// over the settings window's light background the same tokens
+    /// rendered visibly different colors than on the panel — the well
+    /// reproduces the panel's compositing base and makes the preview
+    /// appearance-independent. The GNOME preferences draw their preview
+    /// straight over the Adwaita window background and *have* that
+    /// inconsistency; the well is a deliberate improvement, not a port.
+    ///
+    /// The subtree forces the dark appearance so any semantic color
+    /// inside (the "No spaces in this collection" label) resolves against
+    /// dark, exactly like the panel window.
+    private func makePreviewWell() -> NSView {
+        let well = NSView()
+        well.wantsLayer = true
+        well.layer?.backgroundColor = PanelPalette.panelBackground.cgColor
+        well.layer?.cornerRadius = SettingsMetrics.previewWellCornerRadius
+        well.appearance = NSAppearance(named: .darkAqua)
+
+        // The same inset the panel keeps between its edge and the
+        // miniatures — the injected structural metrics — so the compositing
+        // margin matches too. The well tracks the preview stack's size
+        // through these constraints, so collection switches and imports
+        // (which rebuild the stack and refit the window) resize it
+        // automatically.
+        let inset = PanelMetrics.structural.contentInset
+        previewStack.translatesAutoresizingMaskIntoConstraints = false
+        well.addSubview(previewStack)
+        NSLayoutConstraint.activate([
+            previewStack.topAnchor.constraint(equalTo: well.topAnchor, constant: inset),
+            previewStack.leadingAnchor.constraint(
+                equalTo: well.leadingAnchor, constant: inset),
+            well.trailingAnchor.constraint(
+                equalTo: previewStack.trailingAnchor, constant: inset),
+            well.bottomAnchor.constraint(
+                equalTo: previewStack.bottomAnchor, constant: inset),
+        ])
+        return well
     }
 
     /// The vertical rule between the collection list and the space preview
