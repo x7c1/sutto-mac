@@ -164,6 +164,11 @@ enum SettingsMetrics {
     /// Wrapping width for hint/description labels.
     static let hintWidth: CGFloat = 360
 
+    /// Minimum content width of every settings pane, so switching to a
+    /// sparse tab (Shortcuts) does not collapse the window under its
+    /// toolbar, and the per-tab resize stays mostly vertical.
+    static let minPaneWidth: CGFloat = 440
+
     /// The shortcut capture field's fixed height (a standard control row).
     static let captureFieldHeight: CGFloat = 24
 

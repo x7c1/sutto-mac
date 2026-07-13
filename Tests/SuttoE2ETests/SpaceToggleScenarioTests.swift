@@ -70,8 +70,17 @@ extension SnapScenarioTests {
             }
 
             // 2. Jump to settings from the open panel (⌘, — the panel hides
-            // itself) and find the first space's toggle.
+            // itself). The window opens on the last-used tab, which may be
+            // any of them; the space toggles live on the Layouts tab, so
+            // select it explicitly (pressing the already-selected tab is a
+            // harmless re-selection) and find the first space's toggle.
             try ShortcutInjector.post(.openSettings)
+            let layoutsTab = try await waitFor(
+                "the \"Layouts\" toolbar tab in the settings window"
+            ) {
+                pressable(titled: "Layouts", ofPID: sutto.pid)
+            }
+            try AXClient.press(layoutsTab)
             let toggle = try await waitFor("the \"Space 1\" toggle in the settings window") {
                 spaceToggle(labeled: "Space 1", ofPID: sutto.pid)
             }
@@ -167,6 +176,15 @@ extension SnapScenarioTests {
         private func spaceToggle(labeled label: String, ofPID pid: pid_t) -> AXUIElement? {
             AXClient.windows(ofPID: pid).lazy
                 .compactMap { AXClient.checkBox(labeled: label, under: $0) }
+                .first
+        }
+
+        /// A press-capable element with the given title in any of the app's
+        /// windows — the settings window's toolbar tabs, here — `nil` while
+        /// none is reachable over AX.
+        private func pressable(titled title: String, ofPID pid: pid_t) -> AXUIElement? {
+            AXClient.windows(ofPID: pid).lazy
+                .compactMap { AXClient.pressable(titled: title, under: $0) }
                 .first
         }
 

@@ -129,6 +129,26 @@ enum AXClient {
         return nil
     }
 
+    /// Depth-first search for any press-capable element titled `title` in
+    /// the element's subtree (the element itself included). Role-agnostic
+    /// deliberately: the settings window's toolbar tabs are AppKit-managed
+    /// toolbar buttons whose exact AX role is an implementation detail
+    /// (button vs radio button, varying across macOS versions); what the
+    /// harness needs is "the thing labeled Layouts that can be pressed".
+    static func pressable(titled title: String, under element: AXUIElement) -> AXUIElement? {
+        if supportsPress(element),
+            self.title(of: element) == title || description(of: element) == title
+        {
+            return element
+        }
+        for child in children(of: element) {
+            if let found = pressable(titled: title, under: child) {
+                return found
+            }
+        }
+        return nil
+    }
+
     /// The element's integer `AXValue` — for a checkbox, 1 checked and 0
     /// unchecked — or `nil` when the attribute is missing or not numeric.
     static func intValue(of element: AXUIElement) -> Int? {
@@ -145,6 +165,14 @@ enum AXClient {
     }
 
     // MARK: - Attribute plumbing
+
+    private static func supportsPress(_ element: AXUIElement) -> Bool {
+        var names: CFArray?
+        guard AXUIElementCopyActionNames(element, &names) == .success,
+            let actions = names as? [String]
+        else { return false }
+        return actions.contains(pressAction as String)
+    }
 
     private static func children(of element: AXUIElement) -> [AXUIElement] {
         guard let value = copyAttribute(childrenAttribute, of: element),
