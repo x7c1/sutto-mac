@@ -50,7 +50,7 @@ final class ShortcutsSettingsPane: NSViewController {
                 + "Press Escape to cancel."
         )
         hint.textColor = .secondaryLabelColor
-        hint.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        hint.font = SettingsTypography.hint
         hint.preferredMaxLayoutWidth = SettingsMetrics.hintWidth
 
         let stack = NSStackView(views: [row, hint])

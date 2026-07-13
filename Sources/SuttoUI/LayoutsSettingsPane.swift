@@ -68,7 +68,7 @@ final class LayoutsSettingsPane: NSViewController {
                 + "Click a space in the preview to toggle its visibility."
         )
         hint.textColor = .secondaryLabelColor
-        hint.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        hint.font = SettingsTypography.hint
         hint.preferredMaxLayoutWidth = SettingsMetrics.hintWidth
 
         let importButton = NSButton(
@@ -109,11 +109,45 @@ final class LayoutsSettingsPane: NSViewController {
     /// space preview. Rebuilding both outright keeps radio states, delete
     /// buttons, tags, and toggle dimming trivially consistent with the
     /// repository.
+    ///
+    /// The list is sectioned like the GNOME preferences (`spaces-page.ts`
+    /// renders a Preset section label above a Custom one): the entries
+    /// arrive presets-first from `CollectionSettingsList`, so the view
+    /// only partitions by `kind` — no re-sorting — and row button tags
+    /// keep indexing the flat `entries` array. "Presets" is pluralized
+    /// over GNOME's singular "Preset" (a header over several rows);
+    /// "Custom" matches GNOME and reads as the category.
     func refresh() {
         entries = collections.entries()
         collectionRowsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+
+        collectionRowsStack.addArrangedSubview(makeSectionHeader("Presets"))
         for (index, entry) in entries.enumerated() {
+            guard case .preset = entry.kind else { continue }
             collectionRowsStack.addArrangedSubview(makeRow(for: entry, at: index))
+        }
+
+        // Air between the sections: the last preset row gets the group
+        // gap instead of the tight row gap.
+        if let lastPresetView = collectionRowsStack.arrangedSubviews.last {
+            collectionRowsStack.setCustomSpacing(
+                SettingsMetrics.groupSpacing, after: lastPresetView)
+        }
+
+        collectionRowsStack.addArrangedSubview(makeSectionHeader("Custom"))
+        var hasCustoms = false
+        for (index, entry) in entries.enumerated() {
+            guard case .custom = entry.kind else { continue }
+            hasCustoms = true
+            collectionRowsStack.addArrangedSubview(makeRow(for: entry, at: index))
+        }
+        if !hasCustoms {
+            // GNOME parity: `renderCustomSection` shows the same muted
+            // placeholder when nothing was imported yet.
+            let placeholder = NSTextField(labelWithString: "No custom collections")
+            placeholder.textColor = .secondaryLabelColor
+            placeholder.font = SettingsTypography.hint
+            collectionRowsStack.addArrangedSubview(placeholder)
         }
 
         rebuildPreview()
@@ -200,7 +234,7 @@ final class LayoutsSettingsPane: NSViewController {
             // resolvable collection at all, which reads the same.
             let empty = NSTextField(labelWithString: "No spaces in this collection")
             empty.textColor = .secondaryLabelColor
-            empty.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+            empty.font = SettingsTypography.hint
             previewStack.addArrangedSubview(empty)
             return
         }
@@ -252,6 +286,15 @@ final class LayoutsSettingsPane: NSViewController {
         row.orientation = .horizontal
         row.spacing = SettingsMetrics.controlSpacing
         return row
+    }
+
+    /// A group header for the sectioned collection list (see ``refresh()``
+    /// for the sectioning rules and naming).
+    private func makeSectionHeader(_ title: String) -> NSTextField {
+        let header = NSTextField(labelWithString: title)
+        header.font = SettingsTypography.sectionHeader
+        header.textColor = .secondaryLabelColor
+        return header
     }
 
     /// The dark well behind the space preview: a rounded surface in the

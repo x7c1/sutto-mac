@@ -284,3 +284,21 @@ enum SettingsMetrics {
     /// The shortcut capture field's corner radius.
     static let captureFieldCornerRadius: CGFloat = 6
 }
+
+/// The settings window's type styles. Semantic system colors accompany
+/// them at the point of use (`secondaryLabelColor` for both styles here),
+/// so light/dark tracking stays automatic.
+enum SettingsTypography {
+    /// Group headers in sectioned lists ("Presets", "Custom"): small
+    /// semibold secondary text, the macOS sidebar-style group header —
+    /// the counterpart of the GNOME preferences' bold GTK section labels
+    /// (`spaces-page.ts`), restyled to the HIG rather than copied.
+    static var sectionHeader: NSFont {
+        .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+    }
+
+    /// Hint/description lines under controls, and muted placeholder rows.
+    static var hint: NSFont {
+        .systemFont(ofSize: NSFont.smallSystemFontSize)
+    }
+}
