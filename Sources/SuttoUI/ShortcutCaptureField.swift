@@ -117,24 +117,39 @@ final class ShortcutCaptureField: NSView {
 
     // MARK: - Appearance
 
+    /// Updates the label for the current state. The text colors are
+    /// dynamic system colors on an `NSTextField`, which re-resolves them
+    /// on appearance changes by itself; the *layer* colors are re-derived
+    /// in ``updateLayer()`` instead, which the `needsDisplay` here
+    /// schedules.
     private func refreshAppearance() {
         if isCapturing {
             label.stringValue = "Type shortcut…"
             label.textColor = .secondaryLabelColor
-            layer?.borderColor = NSColor.controlAccentColor.cgColor
         } else {
             label.stringValue = combo.displayString
             label.textColor = .labelColor
-            layer?.borderColor = NSColor.separatorColor.cgColor
         }
-        layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        needsDisplay = true
     }
 
-    /// Layer colors do not track appearance changes on their own; re-derive
-    /// them when the effective appearance flips (light/dark).
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        refreshAppearance()
+    /// Layer colors come from `updateLayer` and nowhere else.
+    override var wantsUpdateLayer: Bool { true }
+
+    /// The one place a semantic `NSColor` may be flattened to a `CGColor`:
+    /// AppKit guarantees the view's appearance is the *current drawing
+    /// appearance* here. Resolving `cgColor` elsewhere — notably in
+    /// `viewDidChangeEffectiveAppearance`, which this view once did — can
+    /// snapshot against the outgoing appearance: after a light→dark
+    /// switch the layer background stayed light while the label's dynamic
+    /// color flipped to white, rendering the combo white-on-white.
+    /// (AppKit calls this on appearance changes automatically for a
+    /// `wantsUpdateLayer` view; state changes schedule it via
+    /// `needsDisplay` in ``refreshAppearance()``.)
+    override func updateLayer() {
+        layer?.borderColor =
+            (isCapturing ? NSColor.controlAccentColor : NSColor.separatorColor).cgColor
+        layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
     }
 
     // MARK: - Accessibility
