@@ -35,6 +35,10 @@ enum ActivePanelModelReplica {
                 Support directory is not writable.
                 """)
         }
+        // No stored monitor environments are passed: the e2e scenarios
+        // exercise collections matching the connected display count, where
+        // the app renders from the live screens and its environment
+        // storage (`monitors.sutto.json`) never participates.
         return MiniaturePanelModel.make(collection: collection, screens: screens)
     }
 

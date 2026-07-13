@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import SuttoDomain
@@ -276,6 +277,124 @@ import Testing
         // 1920x1080 fallback scaled by 100/1080, like the real primary.
         #expect(approximately(display.frame.width, 1920 * primaryScale - 6))
         #expect(approximately(display.frame.height, 94))
+    }
+
+    // MARK: - Stored monitor environments
+
+    private func environment(
+        monitors: [Monitor], lastActiveAt: Double = 0
+    ) -> MonitorEnvironment {
+        MonitorEnvironment(
+            id: MonitorEnvironmentId.generate(for: monitors),
+            monitors: monitors,
+            lastActiveCollectionId: nil,
+            lastActiveAt: Date(timeIntervalSince1970: lastActiveAt)
+        )
+    }
+
+    /// A collection made for two displays on a single-screen machine, with
+    /// the two-display setup remembered: the arrangement comes from the
+    /// stored environment's real geometry — not the side-by-side synthesis
+    /// — with the detached display marked disconnected. The GNOME
+    /// `getMonitorsForRendering` consults its environments the same way.
+    @Test func usesTheStoredEnvironmentGeometryWhenTheCollectionExceedsTheScreens() throws {
+        let desk = environment(monitors: MonitorFixtures.laptopWithUltrawide)
+
+        let arrangement = PanelDisplayArrangement.resolve(
+            screens: [Screen(
+                frame: PixelRect(x: 0, y: 0, width: 1512, height: 982),
+                visibleFrame: PixelRect(x: 0, y: 0, width: 1512, height: 957)
+            )],
+            displayCount: 2,
+            environments: [desk]
+        )
+
+        #expect(arrangement.displays.map(\.key) == ["0", "1"])
+        #expect(arrangement.displays.map(\.frame) == desk.monitors.map(\.geometry))
+        #expect(arrangement.displays.map(\.workAreaWidth) == desk.monitors.map(\.workArea.width))
+        #expect(arrangement.displays.map(\.isPrimary) == [true, false])
+        // The laptop screen is connected; the remembered ultrawide is not.
+        #expect(arrangement.displays.map(\.isConnected) == [true, false])
+    }
+
+    /// Several remembered setups with the right display count: the most
+    /// recently active one wins, like the GNOME
+    /// `findEnvironmentForCollection` sort.
+    @Test func prefersTheMostRecentlyActiveStoredEnvironment() throws {
+        let older = environment(
+            monitors: MonitorFixtures.standardWithSecondary, lastActiveAt: 100)
+        let newer = environment(
+            monitors: MonitorFixtures.laptopWithUltrawide, lastActiveAt: 200)
+
+        let arrangement = PanelDisplayArrangement.resolve(
+            screens: ScreenFixtures.single,
+            displayCount: 2,
+            environments: [older, newer]
+        )
+
+        #expect(arrangement.displays.map(\.frame) == newer.monitors.map(\.geometry))
+    }
+
+    /// Environments with a different display count do not match; the
+    /// synthesis fallback applies as before.
+    @Test func synthesizesWhenNoStoredEnvironmentMatchesTheDisplayCount() throws {
+        let threeDisplays = environment(monitors: [
+            MonitorFixtures.monitor(index: 0, x: 0, y: 0, width: 1920, height: 1080),
+            MonitorFixtures.monitor(index: 1, x: 1920, y: 0, width: 1920, height: 1080),
+            MonitorFixtures.monitor(index: 2, x: 3840, y: 0, width: 1920, height: 1080),
+        ])
+
+        let arrangement = PanelDisplayArrangement.resolve(
+            screens: ScreenFixtures.single,
+            displayCount: 2,
+            environments: [threeDisplays]
+        )
+
+        // Side-by-side clones of the primary: the synthetic fallback.
+        #expect(arrangement.displays.map(\.frame.x) == [0, 1920])
+        #expect(arrangement.displays.map(\.isConnected) == [true, false])
+    }
+
+    /// When the connected screens already match the collection, they win
+    /// over any stored environment — the panel always prefers reality.
+    @Test func theRealScreensWinOverStoredEnvironmentsWhenCountsMatch() throws {
+        let remembered = environment(monitors: MonitorFixtures.standardWithSecondary)
+
+        let arrangement = PanelDisplayArrangement.resolve(
+            screens: ScreenFixtures.secondaryRight,
+            displayCount: 2,
+            environments: [remembered]
+        )
+
+        #expect(arrangement.displays.map(\.isConnected) == [true, true])
+        // Real geometry (the fixture's bottom-aligned secondary), not the
+        // remembered top-aligned one.
+        #expect(arrangement.displays[1].frame == PixelRect(x: 1920, y: 180, width: 1600, height: 900))
+    }
+
+    /// The whole miniature pipeline picks the stored arrangement up: a
+    /// remembered stacked setup renders stacked miniatures, not the
+    /// side-by-side synthesis.
+    @Test func miniaturesFollowTheStoredArrangement() throws {
+        let stacked = environment(monitors: [
+            MonitorFixtures.monitor(index: 0, x: 0, y: 900, width: 1920, height: 1080),
+            MonitorFixtures.monitor(index: 1, x: 0, y: 0, width: 1600, height: 900),
+        ])
+        let preset = PresetGenerator.generate(monitorCount: 2, monitorType: .standard)
+
+        let model = MiniaturePanelModel.make(
+            collection: preset, screens: ScreenFixtures.single, environments: [stacked])
+
+        let space = try #require(model.rows.first?.spaces.first)
+        let first = space.displays[0]
+        let second = space.displays[1]
+        // Stacked: horizontally overlapping, the secondary above.
+        #expect(approximately(second.frame.x, first.frame.x))
+        #expect(second.frame.maxY < first.frame.y + 1)
+        #expect(!second.isConnected)
+        // The disconnected display still carries its regions (rendered
+        // dimmed and non-clickable by the view layer).
+        #expect(!second.regions.isEmpty)
     }
 
     // MARK: - Space content
