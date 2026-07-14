@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
     private var statusItemController: StatusItemController?
     private var permissionOnboarding: PermissionOnboarding?
+    private var edgeTilingGuidance: EdgeTilingGuidance?
     private var layoutPanel: LayoutPanel?
     private var settingsWindow: SettingsWindowController?
     private var hotKeys: CarbonHotKeyRegistrar?
@@ -169,11 +170,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // with the mac-conventional combo).
         panel.onOpenSettings = presentSettings
 
+        // macOS Sequoia ships its own edge-tiling (drag a window to a screen
+        // edge to tile) enabled by default, which fires at the same edges as
+        // Sutto's edge-trigger. Sutto cannot change that system setting, so it
+        // only detects it (reading `EnableTilingByEdgeDrag` from
+        // `com.apple.WindowManager`, fresh on every call) and surfaces
+        // non-blocking guidance: a status-menu warning that appears only while
+        // the OS setting is on, opening a dismissible how-to window. The
+        // edge-trigger itself stays enabled regardless.
+        let edgeTilingCoexistence = EdgeTilingCoexistenceUseCase(
+            detector: WindowManagerEdgeTilingDetector()
+        )
+        let edgeTilingGuidance = EdgeTilingGuidance()
+        self.edgeTilingGuidance = edgeTilingGuidance
+
         statusItemController = StatusItemController(
             permission: permission,
+            edgeTiling: edgeTilingCoexistence,
             onTogglePanel: { togglePanel.toggle() },
-            onOpenSettings: presentSettings
+            onOpenSettings: presentSettings,
+            onShowEdgeTilingGuidance: { edgeTilingGuidance.present() }
         )
+
+        // Re-check the OS edge-tiling setting whenever Sutto comes to the
+        // foreground, so the warning clears (or reappears) after the user
+        // toggles it in System Settings — no relaunch needed. The read is a
+        // single cheap prefs lookup. The menu's own `menuWillOpen` covers the
+        // case of opening the menu directly.
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.statusItemController?.refreshEdgeTilingWarning()
+            }
+        }
 
         // Monitor hot-plug (and arrangement/resolution changes): re-detect
         // the environment — restoring that setup's collection — make sure
