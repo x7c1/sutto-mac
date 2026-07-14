@@ -59,6 +59,15 @@ public final class LayoutPanel {
     /// deliberate deviation.
     public var onOpenSettings: (() -> Void)?
 
+    /// Called at the end of every ``hide()``, i.e. whenever the panel
+    /// actually leaves the screen — via Escape, auto-hide, a click outside,
+    /// or the settings gear. The v0.4 edge-trigger session wires this to
+    /// ``SuttoOperations/EdgeTriggerUseCase/notifyPanelDismissed()`` so the
+    /// policy returns to idle no matter which close path fires; routing it
+    /// through the single `hide()` funnel means no close path can be missed.
+    /// Safe to leave `nil` (the shortcut-only path does).
+    public var onDismiss: (() -> Void)?
+
     private let model: ActivePanelModelUseCase
     private let selection: LayoutSelectionUseCase
     private let position: PanelPositionUseCase
@@ -238,6 +247,10 @@ public final class LayoutPanel {
         // A fresh opening starts dismissible; the edge-trigger session
         // re-suppresses if it needs to.
         dismissalSuppressed = false
+        // Every close path funnels through here, so this is the single point
+        // that tells the edge-trigger session the panel is gone. Fired last,
+        // after the panel is off screen and state is reset.
+        onDismiss?()
     }
 
     // MARK: - Panel construction
@@ -578,6 +591,14 @@ public final class LayoutPanel {
         mouseMonitors = []
     }
 }
+
+/// The edge-trigger session drives the panel through this Operations-layer
+/// surface. `LayoutPanel` already implements all four operations with matching
+/// signatures — `show(at:)`, `move(to:)`, `suppressDismissal()`,
+/// `allowDismissal()` — so the conformance is a declaration only. Keeping it
+/// in the UI layer (which already depends on SuttoOperations) leaves the
+/// composition root to just hand the panel over as an `any EdgeTriggerPanel`.
+extension LayoutPanel: EdgeTriggerPanel {}
 
 /// The footer's settings gear: a template SF Symbol tinted with the
 /// footer text color, with the GNOME gear's hover fill (a faint rounded

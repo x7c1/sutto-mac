@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotKeys: CarbonHotKeyRegistrar?
     private var panelShortcut: PanelShortcutUseCase?
     private var screenObserver: ScreenParametersObserver?
+    private var edgeTrigger: EdgeTriggerUseCase?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // LSUIElement in Info.plist already keeps the app out of the Dock;
@@ -187,6 +188,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             settings?.refreshIfVisible()
         }
+
+        // Edge-drag trigger (v0.4): dragging a window to a screen edge and
+        // dwelling there opens the layout panel at the cursor, which then
+        // follows the drag. It ships enabled by default — there is no
+        // preference toggle yet (that, and macOS-tiling coexistence, land in a
+        // later sub-PR). The drag stream is a mouse-only global NSEvent
+        // monitor (no extra permission); window-move discrimination reads
+        // window frames over AX, which the app already holds. Starting before
+        // AX permission is granted is safe: frame reads return nil, so drags
+        // are simply ignored until permission lands. The two schedulers are
+        // separate instances — one for the dwell delay, one for the move
+        // throttle — because each TimerScheduler owns exactly one timer.
+        let edgeTrigger = EdgeTriggerUseCase(
+            drags: NSEventGlobalDragMonitor(),
+            windows: windowController,
+            screens: screens,
+            panel: panel,
+            dwellTimer: TimerScheduler(),
+            throttle: TimerScheduler()
+        )
+        self.edgeTrigger = edgeTrigger
+        // Every panel close funnels through LayoutPanel.hide(); route that to
+        // the policy so it returns to idle whether the panel closed via Escape,
+        // auto-hide, a click outside, or the settings gear. Redundant calls
+        // (e.g. the shortcut path's own hide) are no-ops from idle.
+        panel.onDismiss = { [weak edgeTrigger] in
+            edgeTrigger?.notifyPanelDismissed()
+        }
+        edgeTrigger.start()
 
         if permission.shouldPresentOnboarding() {
             let onboarding = PermissionOnboarding(permission: permission)
