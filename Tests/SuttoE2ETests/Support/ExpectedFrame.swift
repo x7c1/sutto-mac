@@ -11,13 +11,11 @@ enum ExpectedFrame {
     /// currently at `windowFrame` (AX coordinates).
     static func resolve(_ layout: Layout, windowFrame: PixelRect) throws -> PixelRect {
         let screens = currentScreens()
-        let mouse = NSEvent.mouseLocation
         guard
             let frame = try PlacementFrameResolver.resolve(
                 layout: layout,
                 windowFrame: windowFrame,
-                screens: screens,
-                mouseLocation: PixelPoint(x: mouse.x, y: mouse.y)
+                screens: screens
             )
         else {
             throw E2EFailure("no screens attached")

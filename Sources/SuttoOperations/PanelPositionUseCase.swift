@@ -59,8 +59,7 @@ public final class PanelPositionUseCase {
             anchor: windowFrame.center,
             panelWidth: width,
             panelHeight: height,
-            screens: allScreens,
-            mouseLocation: screens.mouseLocation()
+            screens: allScreens
         )
     }
 
@@ -95,8 +94,7 @@ public final class PanelPositionUseCase {
             panelWidth: width,
             panelHeight: height,
             verticalAnchor: .top,
-            screens: screens.screens(),
-            mouseLocation: screens.mouseLocation()
+            screens: screens.screens()
         )
     }
 }

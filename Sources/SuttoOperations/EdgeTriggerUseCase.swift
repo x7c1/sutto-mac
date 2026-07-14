@@ -281,14 +281,13 @@ public final class EdgeTriggerUseCase {
 
     /// The full frame of the screen the pointer is on (AppKit coordinates, so
     /// it lines up with ``DragObserving``'s pointer and the policy's edge
-    /// test). Falls back to the primary screen when the point lies on no
-    /// screen; `nil` only when no display is attached.
+    /// test). When the pointer lies on no screen's half-open frame — notably
+    /// the exact top row (`y == frame.maxY`) of a secondary screen — the
+    /// *nearest* screen is chosen (``SuttoDomain/Screen/containing(_:in:)``)
+    /// rather than the primary, so the edge check runs against the screen the
+    /// pointer is really on. `nil` only when no display is attached.
     private func screenFrame(containing point: PixelPoint) -> PixelRect? {
-        let all = screens.screens()
-        if let containing = all.first(where: { $0.frame.contains(point) }) {
-            return containing.frame
-        }
-        return all.first?.frame
+        Screen.containing(point, in: screens.screens())?.frame
     }
 
     private func resetDragTracking() {
