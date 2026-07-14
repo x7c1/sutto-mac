@@ -16,22 +16,38 @@ private final class PermissionCheckerStub: PermissionChecking {
     func requestPermission() {}
 }
 
-/// A `WindowControlling` stub with a scriptable focused-window frame that
-/// records every applied frame.
+/// A `TargetWindow` stub, identifiable by reference so tests can assert
+/// that positioning and placement operated on the *same* captured window.
+private final class TargetWindowStub: TargetWindow {}
+
+/// A `WindowControlling` stub whose capture yields a single stub target
+/// with a scriptable frame; it records every frame applied and the target
+/// each `frame(of:)` / `applyFrame(_:to:)` call was handed.
 @MainActor
 private final class WindowControllerStub: WindowControlling {
     var focusedFrame: PixelRect?
     var applySucceeds = true
+    let target = TargetWindowStub()
     private(set) var appliedFrames: [PixelRect] = []
+    private(set) var queriedTargets: [ObjectIdentifier] = []
+    private(set) var appliedTargets: [ObjectIdentifier] = []
 
     init(focusedFrame: PixelRect?) {
         self.focusedFrame = focusedFrame
     }
 
-    func focusedWindowFrame() -> PixelRect? { focusedFrame }
+    func captureFocusedWindow() -> TargetWindow? {
+        focusedFrame == nil ? nil : target
+    }
 
-    func applyFrame(_ frame: PixelRect) -> Bool {
+    func frame(of window: TargetWindow) -> PixelRect? {
+        queriedTargets.append(ObjectIdentifier(window))
+        return focusedFrame
+    }
+
+    func applyFrame(_ frame: PixelRect, to window: TargetWindow) -> Bool {
         appliedFrames.append(frame)
+        appliedTargets.append(ObjectIdentifier(window))
         return applySucceeds
     }
 }
@@ -85,13 +101,28 @@ private let windowOnPrimary = PixelRect(x: 200, y: 200, width: 800, height: 600)
         screens: [Screen] = makeScreens(),
         mouse: PixelPoint = PixelPoint(x: 100, y: 100)
     ) -> (WindowPlacementUseCase, WindowControllerStub) {
+        let (useCase, windows, _) = makeUseCaseAndSession(
+            permission: permission, windowFrame: windowFrame, screens: screens, mouse: mouse)
+        return (useCase, windows)
+    }
+
+    /// Builds the placement use case over a freshly captured session — the
+    /// state the panel is in right after `show()` captures its target.
+    private func makeUseCaseAndSession(
+        permission: AccessibilityAuthorization = .granted,
+        windowFrame: PixelRect? = windowOnPrimary,
+        screens: [Screen] = makeScreens(),
+        mouse: PixelPoint = PixelPoint(x: 100, y: 100)
+    ) -> (WindowPlacementUseCase, WindowControllerStub, PanelTargetSession) {
         let windows = WindowControllerStub(focusedFrame: windowFrame)
+        let session = PanelTargetSession(windows: windows)
+        session.capture()
         let useCase = WindowPlacementUseCase(
             permission: PermissionCheckerStub(status: permission),
-            windows: windows,
+            session: session,
             screens: ScreenProviderStub(screens: screens, mouse: mouse)
         )
-        return (useCase, windows)
+        return (useCase, windows, session)
     }
 
     @Test func appliesTheResolvedFrameForTheWindowScreen() {
@@ -244,5 +275,40 @@ private let windowOnPrimary = PixelRect(x: 200, y: 200, width: 800, height: 600)
 
         // Failure is logged, not fatal: the next attempt still goes through.
         #expect(windows.appliedFrames.count == 2)
+    }
+
+    // MARK: - One captured target for positioning and placement
+
+    /// The core invariant: the window the panel positions itself over and
+    /// the window a selected layout is applied to are one and the same —
+    /// the single window captured when the panel opened. Positioning and
+    /// placement share one session, so both must reach the same target.
+    @Test func positioningAndPlacementActOnTheSameCapturedTarget() {
+        let (placement, windows, session) = makeUseCaseAndSession()
+        let positioning = PanelPositionUseCase(
+            session: session,
+            screens: ScreenProviderStub(screens: makeScreens())
+        )
+
+        _ = positioning.panelFrame(width: 400, height: 200)
+        placement.place(leftHalf)
+
+        // The frame read for positioning and the frame written for
+        // placement both went to the one captured stub target.
+        #expect(windows.queriedTargets.allSatisfy { $0 == ObjectIdentifier(windows.target) })
+        #expect(windows.appliedTargets == [ObjectIdentifier(windows.target)])
+        #expect(!windows.queriedTargets.isEmpty)
+    }
+
+    /// When capture yields nothing (no focused window, or the permission is
+    /// missing) placement is skipped — nothing is applied, exactly as when
+    /// the old lazy resolution returned no window.
+    @Test func skipsPlacementWhenNothingWasCaptured() {
+        let (useCase, windows) = makeUseCase(windowFrame: nil)
+
+        useCase.place(leftHalf)
+        useCase.place(leftHalf, onDisplayKey: "0")
+
+        #expect(windows.appliedFrames.isEmpty)
     }
 }

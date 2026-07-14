@@ -1,11 +1,17 @@
 import SuttoDomain
 import os
 
-/// Snaps the frontmost app's focused window to a selected layout.
+/// Snaps the window captured for the current panel opening to a selected
+/// layout.
+///
+/// The target window comes from ``PanelTargetSession`` — captured once when
+/// the panel opened, shared with ``PanelPositionUseCase`` so positioning
+/// and placement act on the same window — rather than being re-resolved
+/// from the frontmost app on each call.
 ///
 /// Two placement rules coexist:
 ///
-/// - ``place(_:)`` — the window's *own* screen: read the focused window's
+/// - ``place(_:)`` — the window's *own* screen: read the captured window's
 ///   frame → pick its screen (the one containing the window's center;
 ///   ``SuttoDomain/PlacementFrameResolver`` falls back to the mouse's
 ///   screen, then the primary, when the center is off-screen) → resolve
@@ -26,23 +32,23 @@ import os
 @MainActor
 public final class WindowPlacementUseCase {
     private let permission: PermissionChecking
-    private let windows: WindowControlling
+    private let session: PanelTargetSession
     private let screens: ScreenProviding
     private let logger = Logger(
         subsystem: "io.github.x7c1.SuttoMac", category: "placement")
 
     public init(
         permission: PermissionChecking,
-        windows: WindowControlling,
+        session: PanelTargetSession,
         screens: ScreenProviding
     ) {
         self.permission = permission
-        self.windows = windows
+        self.session = session
         self.screens = screens
     }
 
-    /// Places the frontmost app's focused window according to `layout`, on
-    /// the screen the window currently belongs to.
+    /// Places the captured window according to `layout`, on the screen the
+    /// window currently belongs to.
     public func place(_ layout: Layout) {
         guard let context = placementContext() else { return }
 
@@ -56,8 +62,8 @@ public final class WindowPlacementUseCase {
         }
     }
 
-    /// Places the frontmost app's focused window according to `layout`, on
-    /// the screen the display key names.
+    /// Places the captured window according to `layout`, on the screen the
+    /// display key names.
     ///
     /// When the key resolves to no connected screen — a collection made
     /// for more displays than are attached, or a malformed key in
@@ -100,7 +106,7 @@ public final class WindowPlacementUseCase {
     }
 
     /// The guards every placement path shares: permission, at least one
-    /// screen, and a focused window to move.
+    /// screen, and a captured window to move.
     private func placementContext() -> PlacementContext? {
         guard permission.currentStatus() == .granted else {
             logger.error("placement skipped: accessibility permission not granted")
@@ -111,8 +117,8 @@ public final class WindowPlacementUseCase {
             logger.error("placement skipped: no screens attached")
             return nil
         }
-        guard let windowFrame = windows.focusedWindowFrame() else {
-            logger.error("placement skipped: no focused window on the frontmost app")
+        guard let windowFrame = session.targetFrame() else {
+            logger.error("placement skipped: no target window captured for this panel opening")
             return nil
         }
         return PlacementContext(screens: currentScreens, windowFrame: windowFrame)
@@ -142,8 +148,8 @@ public final class WindowPlacementUseCase {
             return
         }
 
-        if !windows.applyFrame(target) {
-            logger.error("placement failed: could not apply the frame to the focused window")
+        if !session.applyFrame(target) {
+            logger.error("placement failed: could not apply the frame to the captured window")
         }
     }
 }

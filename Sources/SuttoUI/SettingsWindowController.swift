@@ -22,15 +22,27 @@ public final class SettingsWindowController {
     private let layoutsPane: LayoutsSettingsPane
     private let shortcutsPane: ShortcutsSettingsPane
     private let position: PanelPositionUseCase
+    private let session: PanelTargetSession
 
     private var window: NSWindow?
     private var tabController: NSTabViewController?
+
+    /// The app that was frontmost when the settings window was activated,
+    /// reactivated when the window closes so closing settings does not
+    /// leave Sutto (an accessory app) frontmost with no other window
+    /// active. Never holds Sutto itself (see ``present()``).
+    private var previousApp: NSRunningApplication?
+
+    /// Strong reference to the window's delegate: `NSWindow.delegate` is
+    /// weak, so the controller must keep it alive.
+    private let windowDelegate = SettingsWindowDelegate()
 
     public init(
         collections: CollectionSettingsUseCase,
         layoutImport: LayoutImportController,
         shortcut: PanelShortcutUseCase,
-        position: PanelPositionUseCase
+        position: PanelPositionUseCase,
+        session: PanelTargetSession
     ) {
         layoutsPane = LayoutsSettingsPane(
             collections: collections,
@@ -38,6 +50,7 @@ public final class SettingsWindowController {
         )
         shortcutsPane = ShortcutsSettingsPane(shortcut: shortcut)
         self.position = position
+        self.session = session
         layoutsPane.onContentSizeChanged = { [weak self] in
             self?.sizeWindowToFitSelectedTab(animated: false)
         }
@@ -48,14 +61,20 @@ public final class SettingsWindowController {
     /// repository on every present, so imports done elsewhere show up.
     ///
     /// On every present the window is re-anchored to the same spot the
-    /// layout panel uses — its center placed on the frontmost app's
-    /// focused-window center, clamped into that screen's work area — so
-    /// settings opens where the user was already looking instead of at
-    /// screen center. The window is sized to its final size first (so the
-    /// center is computed against the size the selected tab will show),
-    /// then positioned. Without a readable focused window the anchor falls
-    /// back to centering on the mouse's screen, then the main screen — the
-    /// same fallback chain the panel uses.
+    /// layout panel uses — its center placed on the captured window's
+    /// center, clamped into that screen's work area — so settings opens
+    /// where the user was already looking instead of at screen center. The
+    /// window is sized to its final size first (so the center is computed
+    /// against the size the selected tab will show), then positioned.
+    /// Without a captured window the anchor falls back to centering on the
+    /// mouse's screen, then the main screen — the same fallback chain the
+    /// panel uses.
+    ///
+    /// The capture and the previously-frontmost app are both read *before*
+    /// activating: an accessory app is never frontmost on its own, so at
+    /// this instant the frontmost app is the one the user was working in.
+    /// Storing it lets ``windowWillClose`` reactivate it when settings
+    /// closes, instead of leaving Sutto frontmost with no window active.
     public func present() {
         let window = self.window ?? makeWindow()
         self.window = window
@@ -63,6 +82,17 @@ public final class SettingsWindowController {
         // Size first: the anchor centers the window's *final* frame, and
         // the selected tab's size is only settled after refresh().
         refresh()
+
+        // Capture the anchor window and remember the app to restore, both
+        // before the activation below makes Sutto frontmost. Only store an
+        // app other than Sutto itself, so closing settings never tries to
+        // "restore" to us — and a second present() while settings is
+        // already frontmost keeps the real previous app.
+        session.capture()
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        if frontmost?.processIdentifier != NSRunningApplication.current.processIdentifier {
+            previousApp = frontmost
+        }
 
         let size = window.frame.size
         if let frame = position.panelFrame(width: size.width, height: size.height) {
@@ -82,6 +112,15 @@ public final class SettingsWindowController {
         // window would appear behind the frontmost app.
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+    }
+
+    /// Reactivates the app that was frontmost when settings opened, then
+    /// forgets it. Called from the window delegate on close so an accessory
+    /// app does not linger as the frontmost app once its only window is
+    /// gone. Uses the modern, non-deprecated `NSRunningApplication.activate()`.
+    private func restorePreviousApp() {
+        previousApp?.activate()
+        previousApp = nil
     }
 
     /// Re-renders the panes if the window is on screen — called when the
@@ -173,6 +212,10 @@ public final class SettingsWindowController {
         // Centered icon-over-label toolbar items, the preferences look.
         window.toolbarStyle = .preference
         window.contentViewController = tabController
+        windowDelegate.onWillClose = { [weak self] in
+            self?.restorePreviousApp()
+        }
+        window.delegate = windowDelegate
         // The selection above ran before the window existed, so set the
         // title it would have set.
         window.title = restored.title
@@ -186,6 +229,19 @@ public final class SettingsWindowController {
         case .layouts: return layoutsPane
         case .shortcuts: return shortcutsPane
         }
+    }
+}
+
+/// The settings window's delegate, forwarding the close notification to the
+/// controller so it can restore the previously-frontmost app. A small
+/// `NSObject` because `NSWindowDelegate` requires one and
+/// ``SettingsWindowController`` is a plain controller class.
+@MainActor
+private final class SettingsWindowDelegate: NSObject, NSWindowDelegate {
+    var onWillClose: (() -> Void)?
+
+    func windowWillClose(_ notification: Notification) {
+        onWillClose?()
     }
 }
 
