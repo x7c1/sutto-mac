@@ -96,6 +96,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             metrics: panelMetrics
         )
 
+        // Shared by the panel and the settings window so both open at the
+        // same anchor — centered over the frontmost app's focused window,
+        // clamped into that screen's work area.
+        let panelPosition = PanelPositionUseCase(
+            windows: windowController,
+            screens: screens
+        )
+
         let panel = LayoutPanel(
             model: panelModel,
             selection: LayoutSelectionUseCase { event in
@@ -110,10 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         """)
                 placement.place(event.layout, onDisplayKey: event.displayKey)
             },
-            position: PanelPositionUseCase(
-                windows: windowController,
-                screens: screens
-            )
+            position: panelPosition
         )
         layoutPanel = panel
 
@@ -141,7 +146,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     fileReader: LocalFileReader()
                 )
             ),
-            shortcut: registerGlobalShortcut(with: togglePanel, preferences: preferences)
+            shortcut: registerGlobalShortcut(with: togglePanel, preferences: preferences),
+            position: panelPosition
         )
         settingsWindow = settings
 
