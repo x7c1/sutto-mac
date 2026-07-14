@@ -21,6 +21,7 @@ import SuttoOperations
 public final class SettingsWindowController {
     private let layoutsPane: LayoutsSettingsPane
     private let shortcutsPane: ShortcutsSettingsPane
+    private let position: PanelPositionUseCase
 
     private var window: NSWindow?
     private var tabController: NSTabViewController?
@@ -28,13 +29,15 @@ public final class SettingsWindowController {
     public init(
         collections: CollectionSettingsUseCase,
         layoutImport: LayoutImportController,
-        shortcut: PanelShortcutUseCase
+        shortcut: PanelShortcutUseCase,
+        position: PanelPositionUseCase
     ) {
         layoutsPane = LayoutsSettingsPane(
             collections: collections,
             layoutImport: layoutImport
         )
         shortcutsPane = ShortcutsSettingsPane(shortcut: shortcut)
+        self.position = position
         layoutsPane.onContentSizeChanged = { [weak self] in
             self?.sizeWindowToFitSelectedTab(animated: false)
         }
@@ -43,19 +46,41 @@ public final class SettingsWindowController {
     /// Shows the settings window, creating it on first use and focusing
     /// the existing one afterwards. The collection list re-reads the
     /// repository on every present, so imports done elsewhere show up.
+    ///
+    /// On every present the window is re-anchored to the same spot the
+    /// layout panel uses — its center placed on the frontmost app's
+    /// focused-window center, clamped into that screen's work area — so
+    /// settings opens where the user was already looking instead of at
+    /// screen center. The window is sized to its final size first (so the
+    /// center is computed against the size the selected tab will show),
+    /// then positioned. Without a readable focused window the anchor falls
+    /// back to centering on the mouse's screen, then the main screen — the
+    /// same fallback chain the panel uses.
     public func present() {
-        let isFirstPresentation = window == nil
         let window = self.window ?? makeWindow()
         self.window = window
 
+        // Size first: the anchor centers the window's *final* frame, and
+        // the selected tab's size is only settled after refresh().
         refresh()
+
+        let size = window.frame.size
+        if let frame = position.panelFrame(width: size.width, height: size.height) {
+            window.setFrameOrigin(NSPoint(x: frame.x, y: frame.y))
+        } else if let screen = screenWithMouse() {
+            let visible = screen.visibleFrame
+            window.setFrameOrigin(
+                NSPoint(
+                    x: visible.midX - size.width / 2,
+                    y: visible.midY - size.height / 2
+                ))
+        } else {
+            window.center()
+        }
 
         // An LSUIElement app is never active on its own; without this the
         // window would appear behind the frontmost app.
         NSApp.activate(ignoringOtherApps: true)
-        if isFirstPresentation {
-            window.center()
-        }
         window.makeKeyAndOrderFront(nil)
     }
 
@@ -111,6 +136,15 @@ public final class SettingsWindowController {
         frame.origin.y -= target.height - contentView.frame.height
         frame.size.height += target.height - contentView.frame.height
         window.setFrame(frame, display: true, animate: animated && window.isVisible)
+    }
+
+    /// The screen containing the mouse pointer (falling back to the main
+    /// screen), used as the anchor when no focused window is readable —
+    /// the same fallback ``LayoutPanel`` uses so the two land consistently.
+    private func screenWithMouse() -> NSScreen? {
+        let mouse = NSEvent.mouseLocation
+        return NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
+            ?? NSScreen.main
     }
 
     // MARK: - Window construction
