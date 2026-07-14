@@ -150,9 +150,9 @@ public enum PanelMetrics {
         // Vertical gap between rows (GNOME ROW_SPACING).
         rowSpacing: 6,
         // Padding between the panel edge and the miniatures. GNOME's
-        // PANEL_PADDING is 12; 16 breathes better inside the mac panel's
-        // 12pt corner radius (deliberate deviation).
-        contentInset: 7
+        // PANEL_PADDING is 12; tuned down to 8 by on-screen review of the
+        // mac panel (deliberate deviation).
+        contentInset: 8
     )
 
     /// The panel background's corner radius. GNOME uses a squarer panel;
