@@ -29,7 +29,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         permissionStatusMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         edgeTilingWarningItem = NSMenuItem(
-            title: "⚠︎ macOS edge tiling is on — fix…",
+            title: "⚠︎ macOS window tiling is on — fix…",
             action: nil,
             keyEquivalent: ""
         )

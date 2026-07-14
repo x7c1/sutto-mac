@@ -2,39 +2,47 @@ import Foundation
 import SuttoDomain
 import SuttoOperations
 
-/// Reads the macOS built-in edge-tiling setting straight from the
-/// `com.apple.WindowManager` preference domain
-/// (`EnableTilingByEdgeDrag`), the toggle behind System Settings ›
-/// Desktop & Dock › "Drag windows to screen edges to tile".
+/// Reads the macOS built-in window-tiling settings straight from the
+/// `com.apple.WindowManager` preference domain — the toggles in System
+/// Settings › Desktop & Dock:
+///
+/// - `EnableTilingByEdgeDrag` — "Drag windows to screen edges to tile".
+/// - `EnableTopTilingByEdgeDrag` — "Drag windows to menu bar to fill screen".
 ///
 /// Uses only the public `CFPreferences` API (no private frameworks — the Mac
-/// App Store is a future target). The value is read FRESH on every call: the
-/// user can flip the toggle while Sutto is running, so a cached read would go
+/// App Store is a future target). Values are read FRESH on every call: the
+/// user can flip a toggle while Sutto is running, so a cached read would go
 /// stale. `CFPreferencesAppSynchronize` drops any per-process cfprefs cache
-/// before the copy so the read reflects the current on-disk value.
+/// before the copies so the reads reflect the current on-disk values.
 ///
 /// The "absent → enabled" interpretation lives in the pure
 /// ``SuttoDomain/SystemEdgeTilingPolicy`` (unit-tested there); this adapter
-/// only performs the raw read and composes the two.
+/// only performs the raw reads and composes them into an
+/// ``SuttoDomain/EdgeTilingConflicts``.
 @MainActor
 public struct WindowManagerEdgeTilingDetector: EdgeTilingDetecting {
     static let applicationID = "com.apple.WindowManager"
-    static let key = "EnableTilingByEdgeDrag"
+    static let edgeTilingKey = "EnableTilingByEdgeDrag"
+    static let menuBarFillKey = "EnableTopTilingByEdgeDrag"
 
     public init() {}
 
-    public func isSystemEdgeTilingEnabled() -> Bool {
-        SystemEdgeTilingPolicy.isEnabled(from: rawValue())
+    public func detectConflicts() -> EdgeTilingConflicts {
+        // Drop any cached copy once so both reads below reflect a mid-session
+        // toggle of either setting.
+        CFPreferencesAppSynchronize(Self.applicationID as CFString)
+        return SystemEdgeTilingPolicy.conflicts(
+            edgeTilingRawValue: rawValue(forKey: Self.edgeTilingKey),
+            menuBarFillRawValue: rawValue(forKey: Self.menuBarFillKey)
+        )
     }
 
-    /// The current stored value, or `nil` when the key has never been
+    /// The current stored value for `key`, or `nil` when it has never been
     /// written (the default-ON case on Sequoia).
-    private func rawValue() -> Bool? {
+    private func rawValue(forKey key: String) -> Bool? {
         let applicationID = Self.applicationID as CFString
-        // Drop any cached copy so a mid-session toggle is picked up.
-        CFPreferencesAppSynchronize(applicationID)
         guard
-            let value = CFPreferencesCopyAppValue(Self.key as CFString, applicationID)
+            let value = CFPreferencesCopyAppValue(key as CFString, applicationID)
         else {
             return nil
         }
