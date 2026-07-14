@@ -26,6 +26,18 @@ import Testing
         #expect(outcome == .captured(KeyCombo(keyCode: 40, modifiers: modifier)))
     }
 
+    /// Combos the app's main menu also claims (⌘W Close, ⌘Q Quit) are
+    /// ordinary capturable shortcuts to the policy — the capture field
+    /// intercepts them ahead of the menu (`performKeyEquivalent` runs on
+    /// the view hierarchy before AppKit consults `NSApp.mainMenu`), so
+    /// the policy must accept rather than special-case them.
+    @Test(arguments: [UInt16(13), 12])  // kVK_ANSI_W, kVK_ANSI_Q
+    func capturesCombosTheMainMenuAlsoClaims(keyCode: UInt16) {
+        let outcome = ShortcutCapturePolicy.outcome(forKeyCode: keyCode, modifiers: .command)
+
+        #expect(outcome == .captured(KeyCombo(keyCode: keyCode, modifiers: .command)))
+    }
+
     /// A key without any modifier would shadow plain typing; wait for a
     /// real combo instead (the GNOME dialog ignores these the same way).
     @Test func ignoresAnUnmodifiedKey() {

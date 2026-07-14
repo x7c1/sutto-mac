@@ -166,9 +166,11 @@ import Testing
         #expect(collection.name == "Single Monitor Basic")
         #expect(repository.collections == [collection])
 
-        // The imported collection projects onto the panel as the sample's
-        // two spaces: "half split" and "full".
-        let groups = LayoutPanelProjection.layoutGroups(in: collection)
+        // The imported collection renders on the panel as the sample's
+        // two spaces: "half split" and "full" on the primary display.
+        let groups = collection.rows
+            .flatMap(\.spaces)
+            .compactMap { $0.displays[PanelDisplayKey.primary] }
         #expect(groups.map(\.name) == ["half split", "full"])
         #expect(groups[0].layouts.map(\.label) == ["Left", "Right"])
         #expect(groups[1].layouts.map(\.label) == ["Full"])

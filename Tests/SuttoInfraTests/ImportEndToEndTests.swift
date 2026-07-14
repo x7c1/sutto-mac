@@ -52,19 +52,29 @@ import Testing
         // Fresh instances over the same storage stand in for a restart.
         let reopenedRepository = FileSpaceCollectionRepository(directory: directory)
         let reopenedPreferences = UserDefaultsPreferencesRepository(defaults: defaults)
+        let environment = MonitorEnvironmentUseCase(
+            screens: screens,
+            repository: FileMonitorEnvironmentRepository(directory: directory),
+            preferences: reopenedPreferences
+        )
 
-        let activeGroups = ActiveLayoutGroupsUseCase(
+        let panelModel = ActivePanelModelUseCase(
             repository: reopenedRepository,
             preferences: reopenedPreferences,
-            screens: screens
+            screens: screens,
+            environment: environment
         )
 
         // Importing adds without activating (as in GNOME): the panel still
         // shows the generated standard preset until the collection is
         // selected in settings.
         #expect(
-            activeGroups.activeLayoutGroups().map(\.name)
-                == PresetConfiguration.standardLayoutGroupNames)
+            renderedLabels(panelModel.panelModel())
+                == PresetConfiguration.standardLayoutGroupNames.map { name in
+                    PresetConfiguration.baseLayoutGroups
+                        .first { $0.name == name }!
+                        .layouts.map(\.label)
+                })
 
         // Selecting the imported collection in the settings list flips the
         // panel to it: the sample's two spaces project to "half split" and
@@ -72,21 +82,29 @@ import Testing
         let settings = CollectionSettingsUseCase(
             repository: reopenedRepository,
             preferences: reopenedPreferences,
-            screens: screens
+            screens: screens,
+            environment: environment
         )
         let importedEntry = try #require(
             settings.entries().first { $0.kind == .custom(imported.id) })
         settings.select(importedEntry)
 
-        let groups = activeGroups.activeLayoutGroups()
-        #expect(groups.map(\.name) == ["half split", "full"])
-        #expect(groups[0].layouts.map(\.label) == ["Left", "Right"])
-        #expect(groups[1].layouts.map(\.label) == ["Full"])
+        // The sample's two spaces render as miniatures: "half split"
+        // (Left/Right) and "full" (Full).
+        #expect(renderedLabels(panelModel.panelModel()) == [["Left", "Right"], ["Full"]])
 
         // And the persisted collection is the imported one, byte-stable
         // through the storage codec.
         #expect(reopenedRepository.loadCustomCollections() == [imported])
         #expect(reopenedPreferences.activeCollectionId() == imported.id)
+    }
+}
+
+/// The region labels of each space's first display, in reading order —
+/// the miniature model's equivalent of "which layout groups render".
+private func renderedLabels(_ model: MiniaturePanelModel) -> [[String]] {
+    model.rows.flatMap(\.spaces).map { space in
+        (space.displays.first?.regions ?? []).map(\.layout.label)
     }
 }
 

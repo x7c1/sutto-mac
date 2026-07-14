@@ -64,29 +64,56 @@ distribution signing or notarization.
    - **Certificate Type**: `Code Signing`.
 4. Click **Create**, then **Done**. The certificate lands in your login
    keychain.
-5. Verify that `codesign` can see it:
+5. **Mark it trusted** — on current macOS the assistant does NOT auto-trust
+   self-signed certificates, so the identity stays invalid
+   (`CSSMERR_TP_NOT_TRUSTED`) until you do this: double-click the
+   certificate in Keychain Access, expand **Trust**, set **When using this
+   certificate** to **Always Trust**, and close the window (you will be
+   asked for your password).
+6. Verify that `codesign` sees exactly one VALID identity:
 
    ```sh
-   security find-identity -p codesigning
+   security find-identity -p codesigning -v
    ```
 
-   The output should list `"Sutto Dev"`. If the identity is reported as not
-   trusted, open the certificate in Keychain Access, expand **Trust**, and
-   set **Code Signing** to **Always Trust**.
+   The output must say `1 valid identities found` with `"Sutto Dev"`.
+   Gotchas seen in practice:
+   - `0 valid identities found` but the plain (non-`-v`) listing shows the
+     certificate with `CSSMERR_TP_NOT_TRUSTED` → step 5 was skipped.
+   - Two `"Sutto Dev"` entries (the assistant was run twice) → `codesign`
+     will refuse the name as ambiguous; delete one of the duplicates in
+     Keychain Access.
+   - Every build shows a password dialog — “codesign wants to sign using
+     key "Sutto Dev" in your keychain” → click **Always Allow** once
+     (clicking plain Allow re-prompts on every build). If the dialog keeps
+     coming back, open the private key in Keychain Access (login keychain →
+     Keys category → the `Sutto Dev` key) → **Access Control** → select
+     “Allow all applications to access this item”. The key is a
+     development-only self-signed key, so this is safe.
 
 ### Usage
 
-Pass the certificate name whenever you build the bundle:
+Recommended: create a git-ignored `local.mk` next to the `Makefile` (it is
+`-include`d automatically), so every build in this checkout signs — no
+matter which shell, tool, or agent runs `make`:
 
-```sh
-make run CODESIGN_IDENTITY="Sutto Dev"
+```make
+# local.mk — per-machine settings, not committed
+CODESIGN_IDENTITY := Sutto Dev
 ```
 
-`make app` accepts the same variable, and exporting it in your shell profile
-(`export CODESIGN_IDENTITY="Sutto Dev"`) makes plain `make run` sign
-automatically. The first signed build still needs one manual grant under
-System Settings › Privacy & Security › Accessibility (it is a new identity),
-but every rebuild after that keeps the permission.
+Alternatively pass the variable per invocation
+(`make run CODESIGN_IDENTITY="Sutto Dev"`) or export it in your shell
+profile — but note both of those silently stop applying in shells without
+the export (a fresh terminal, another tool's shell), and every unsigned
+build you launch re-triggers the permission dance. `local.mk` avoids that
+failure mode.
+
+The first signed build still needs one manual grant under System Settings ›
+Privacy & Security › Accessibility (it is a new identity), but every rebuild
+after that keeps the permission. Verify what a bundle was actually signed
+with via `codesign -dv .build/Sutto.app` (unsigned builds show
+`Signature=adhoc`).
 
 ## Gotchas
 

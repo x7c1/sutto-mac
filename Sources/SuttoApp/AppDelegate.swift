@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: SettingsWindowController?
     private var hotKeys: CarbonHotKeyRegistrar?
     private var panelShortcut: PanelShortcutUseCase?
+    private var screenObserver: ScreenParametersObserver?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // LSUIElement in Info.plist already keeps the app out of the Dock;
@@ -26,15 +27,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // development, where no Info.plist is present.
         NSApp.setActivationPolicy(.accessory)
 
+        // An accessory app never shows a menu bar, but NSApp.mainMenu is
+        // still the key-equivalent routing table: without it ⌘W cannot
+        // close the settings window, ⌘Q cannot quit, and ⌘C/⌘V would be
+        // dead in any text field the app ever grows. This menu exists
+        // purely for that routing — nothing here is ever visible.
+        NSApp.mainMenu = Self.makeMainMenu()
+
         let screens = SystemScreenProvider()
 
-        // Selecting a layout snaps the frontmost app's focused window. The
-        // layout panel is a non-activating NSPanel, so the app that was
-        // frontmost when the panel appeared is still frontmost when the
-        // button is clicked — placement targets that app's window.
+        // Selecting a layout snaps the window captured when the panel
+        // opened. The layout panel is a non-activating NSPanel, so the app
+        // frontmost when the panel appears stays frontmost — its focused
+        // window is what the capture (below) records, and the same window
+        // feeds both the panel's positioning and every layout applied.
+        let windowController = AXWindowController()
+        // The one target window per panel opening: captured when the panel
+        // (or the settings window) opens and shared by positioning and
+        // placement, so both act on the same window and the panel can never
+        // move itself.
+        let targetSession = PanelTargetSession(windows: windowController)
         let placement = WindowPlacementUseCase(
             permission: AccessibilityPermissionChecker(),
-            windows: AXWindowController(),
+            session: targetSession,
             screens: screens
         )
         // Collections persist under Application Support, the active
@@ -46,6 +61,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         let preferences = UserDefaultsPreferencesRepository()
 
+        // Monitor environments: every physical display setup is identified
+        // and remembers the collection the user activated in it, GNOME's
+        // Monitor Environment feature. Detecting at launch either restores
+        // the current setup's collection or, on the very first run,
+        // migrates the pre-existing single active-collection preference
+        // into this environment's record.
+        let monitorEnvironment = MonitorEnvironmentUseCase(
+            screens: screens,
+            repository: FileMonitorEnvironmentRepository(
+                directory: FileSpaceCollectionRepository.defaultDirectory()
+            ),
+            preferences: preferences
+        )
+        monitorEnvironment.activateEnvironmentForCurrentScreens()
+
         // Generate the presets for the current monitor configuration once
         // at launch, then again whenever the panel or the settings open —
         // the same ensure-on-open the GNOME version runs, so plugging in a
@@ -56,22 +86,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         presetGenerator.ensurePresetsForCurrentMonitors()
 
-        let activeGroups = ActiveLayoutGroupsUseCase(
+        // The panel's structural geometry comes from the UI layer's design
+        // tokens (the one file where every tunable design value lives) and
+        // is injected here; the model output carries it to the drawn
+        // stacks and the keyboard navigator alike.
+        let panelMetrics = PanelMetrics.structural
+
+        let panelModel = ActivePanelModelUseCase(
             repository: collections,
             preferences: preferences,
+            screens: screens,
+            environment: monitorEnvironment,
+            metrics: panelMetrics
+        )
+
+        // Shared by the panel and the settings window so both open at the
+        // same anchor — centered over the window captured for the opening,
+        // clamped into that screen's work area.
+        let panelPosition = PanelPositionUseCase(
+            session: targetSession,
             screens: screens
         )
 
         let panel = LayoutPanel(
-            groups: activeGroups,
-            selection: LayoutSelectionUseCase { layout in
+            model: panelModel,
+            selection: LayoutSelectionUseCase { event in
                 // .public: unified logging redacts dynamic strings as
                 // <private> in `log stream` by default, which would hide
                 // the selected layout from this dev-facing log.
                 Logger(subsystem: "io.github.x7c1.SuttoMac", category: "selection")
-                    .info("layout selected: \(layout.label, privacy: .public)")
-                placement.place(layout)
-            }
+                    .info(
+                        """
+                        layout selected: \(event.layout.label, privacy: .public) \
+                        on display \(event.displayKey, privacy: .public)
+                        """)
+                placement.place(event.layout, onDisplayKey: event.displayKey)
+            },
+            position: panelPosition,
+            session: targetSession
         )
         layoutPanel = panel
 
@@ -89,7 +141,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             collections: CollectionSettingsUseCase(
                 repository: collections,
                 preferences: preferences,
-                screens: screens
+                screens: screens,
+                environment: monitorEnvironment,
+                metrics: panelMetrics
             ),
             layoutImport: LayoutImportController(
                 importCollection: ImportCollectionUseCase(
@@ -97,7 +151,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     fileReader: LocalFileReader()
                 )
             ),
-            shortcut: registerGlobalShortcut(with: togglePanel, preferences: preferences)
+            shortcut: registerGlobalShortcut(with: togglePanel, preferences: preferences),
+            position: panelPosition,
+            session: targetSession
         )
         settingsWindow = settings
 
@@ -118,11 +174,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onOpenSettings: presentSettings
         )
 
+        // Monitor hot-plug (and arrangement/resolution changes): re-detect
+        // the environment — restoring that setup's collection — make sure
+        // the presets for the new monitor count exist, and refresh whatever
+        // is on screen. The GNOME controller does the same on the shell's
+        // monitors-changed signal (re-detect + re-show the panel).
+        screenObserver = ScreenParametersObserver { [weak panel, weak settings] in
+            monitorEnvironment.activateEnvironmentForCurrentScreens()
+            presetGenerator.ensurePresetsForCurrentMonitors()
+            if let panel, panel.isVisible {
+                panel.show()
+            }
+            settings?.refreshIfVisible()
+        }
+
         if permission.shouldPresentOnboarding() {
             let onboarding = PermissionOnboarding(permission: permission)
             permissionOnboarding = onboarding
             onboarding.present()
         }
+    }
+
+    /// The invisible main menu that gives the accessory app standard
+    /// key-equivalent routing (see the call site).
+    ///
+    /// - Close (⌘W) is nil-targeted `performClose:`, so it travels the
+    ///   key window's responder chain: the settings window (`.closable`)
+    ///   closes exactly like its red close button, keeping the
+    ///   single-instance show-or-focus behavior; the layout panel is a
+    ///   borderless non-closable panel, so `performClose:` refuses it —
+    ///   ⌘W never dismisses the panel (Escape remains its close key).
+    /// - Quit (⌘Q) works from any key window while the app is active —
+    ///   the standard accessory-app behavior.
+    /// - The Edit block wires the standard text-editing selectors so
+    ///   ⌘X/⌘C/⌘V/⌘A work in any current or future text field — the
+    ///   classic LSUIElement gotcha (no menu, no editing equivalents).
+    ///
+    /// While the shortcut-capture field is capturing, these equivalents
+    /// are *capturable* as combos rather than triggering the menu: the
+    /// key window's view hierarchy gets `performKeyEquivalent` before
+    /// AppKit falls through to the main menu, and the field consumes the
+    /// press there.
+    private static func makeMainMenu() -> NSMenu {
+        let main = NSMenu()
+
+        let appMenu = NSMenu()
+        appMenu.addItem(
+            withTitle: "Quit Sutto",
+            action: #selector(NSApplication.terminate(_:)),
+            keyEquivalent: "q"
+        )
+        main.addItem(submenu: appMenu)
+
+        let fileMenu = NSMenu(title: "File")
+        fileMenu.addItem(
+            withTitle: "Close",
+            action: #selector(NSWindow.performClose(_:)),
+            keyEquivalent: "w"
+        )
+        main.addItem(submenu: fileMenu)
+
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(
+            withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(
+            withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(
+            withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(
+            withTitle: "Select All",
+            action: #selector(NSText.selectAll(_:)),
+            keyEquivalent: "a"
+        )
+        main.addItem(submenu: editMenu)
+
+        return main
     }
 
     /// Wires and registers the global panel-toggle shortcut: the captured
@@ -151,5 +277,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 )
         }
         return shortcut
+    }
+}
+
+extension NSMenu {
+    /// Adds a top-level item carrying `submenu` — the menu-bar shape
+    /// AppKit expects (every top-level item wraps a submenu), without the
+    /// item-title boilerplate that would never be seen anyway.
+    fileprivate func addItem(submenu: NSMenu) {
+        let item = NSMenuItem()
+        item.submenu = submenu
+        addItem(item)
     }
 }

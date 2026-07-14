@@ -18,7 +18,11 @@ enum AXClient {
     private static let roleAttribute = "AXRole" as CFString
     private static let titleAttribute = "AXTitle" as CFString
     private static let frontmostAttribute = "AXFrontmost" as CFString
+    private static let descriptionAttribute = "AXDescription" as CFString
+    private static let valueAttribute = "AXValue" as CFString
     private static let buttonRole = "AXButton"
+    private static let groupRole = "AXGroup"
+    private static let checkBoxRole = "AXCheckBox"
     private static let pressAction = "AXPress" as CFString
 
     // MARK: - Application state
@@ -69,6 +73,26 @@ enum AXClient {
         return PixelRect(x: position.x, y: position.y, width: size.width, height: size.height)
     }
 
+    // MARK: - Groups
+
+    /// Depth-first search for every group labeled `label` in the element's
+    /// subtree (the element itself included). NSView accessibility labels
+    /// surface as `AXDescription`; the title is checked as a fallback.
+    /// The panel's space and display miniatures are such groups
+    /// ("Space 1", "Display 2", ...).
+    static func groups(labeled label: String, under element: AXUIElement) -> [AXUIElement] {
+        var found: [AXUIElement] = []
+        if role(of: element) == groupRole,
+            description(of: element) == label || title(of: element) == label
+        {
+            found.append(element)
+        }
+        for child in children(of: element) {
+            found.append(contentsOf: groups(labeled: label, under: child))
+        }
+        return found
+    }
+
     // MARK: - Buttons
 
     /// Depth-first search for a button with the given title in the element's
@@ -85,6 +109,52 @@ enum AXClient {
         return nil
     }
 
+    // MARK: - Checkboxes
+
+    /// Depth-first search for a checkbox labeled `label` in the element's
+    /// subtree (the element itself included). The settings window's space
+    /// toggles are such checkboxes ("Space 1", "Space 2", …), their value
+    /// tracking the enabled state.
+    static func checkBox(labeled label: String, under element: AXUIElement) -> AXUIElement? {
+        if role(of: element) == checkBoxRole,
+            description(of: element) == label || title(of: element) == label
+        {
+            return element
+        }
+        for child in children(of: element) {
+            if let found = checkBox(labeled: label, under: child) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    /// Depth-first search for any press-capable element titled `title` in
+    /// the element's subtree (the element itself included). Role-agnostic
+    /// deliberately: the settings window's toolbar tabs are AppKit-managed
+    /// toolbar buttons whose exact AX role is an implementation detail
+    /// (button vs radio button, varying across macOS versions); what the
+    /// harness needs is "the thing labeled Layouts that can be pressed".
+    static func pressable(titled title: String, under element: AXUIElement) -> AXUIElement? {
+        if supportsPress(element),
+            self.title(of: element) == title || description(of: element) == title
+        {
+            return element
+        }
+        for child in children(of: element) {
+            if let found = pressable(titled: title, under: child) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    /// The element's integer `AXValue` — for a checkbox, 1 checked and 0
+    /// unchecked — or `nil` when the attribute is missing or not numeric.
+    static func intValue(of element: AXUIElement) -> Int? {
+        copyAttribute(valueAttribute, of: element) as? Int
+    }
+
     /// Presses the element (`AXPress`), i.e. clicks a button without
     /// synthesizing mouse events.
     static func press(_ element: AXUIElement) throws {
@@ -95,6 +165,14 @@ enum AXClient {
     }
 
     // MARK: - Attribute plumbing
+
+    private static func supportsPress(_ element: AXUIElement) -> Bool {
+        var names: CFArray?
+        guard AXUIElementCopyActionNames(element, &names) == .success,
+            let actions = names as? [String]
+        else { return false }
+        return actions.contains(pressAction as String)
+    }
 
     private static func children(of element: AXUIElement) -> [AXUIElement] {
         guard let value = copyAttribute(childrenAttribute, of: element),
@@ -109,6 +187,10 @@ enum AXClient {
 
     private static func title(of element: AXUIElement) -> String? {
         copyAttribute(titleAttribute, of: element) as? String
+    }
+
+    private static func description(of element: AXUIElement) -> String? {
+        copyAttribute(descriptionAttribute, of: element) as? String
     }
 
     private static func copyAttribute(

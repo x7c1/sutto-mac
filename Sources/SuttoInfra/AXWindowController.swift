@@ -4,9 +4,23 @@ import SuttoDomain
 import SuttoOperations
 import os
 
-/// Controls the frontmost app's focused window through the Accessibility
-/// (AX) API: `NSWorkspace` names the frontmost app, and the AX element tree
-/// of that app exposes its focused window's position and size.
+/// A window captured through the Accessibility API, wrapping the raw
+/// `AXUIElement`. The concrete type stays inside this layer: the operations
+/// layer only ever sees it as an opaque ``TargetWindow`` (only
+/// ``AXWindowController`` — which created it — unwraps it again).
+final class AXTargetWindow: TargetWindow {
+    let element: AXUIElement
+
+    init(element: AXUIElement) {
+        self.element = element
+    }
+}
+
+/// Captures and controls a window through the Accessibility (AX) API:
+/// `NSWorkspace` names the frontmost app, the AX element tree of that app
+/// exposes its focused window, and that window's element is captured once
+/// (see ``WindowControlling``) so position and size are read from and
+/// written to the same window for the rest of the interaction.
 ///
 /// All frames are in AX coordinates (global top-left origin, y down), as the
 /// ``WindowControlling`` protocol requires — the AX attributes use that
@@ -27,18 +41,23 @@ public final class AXWindowController: WindowControlling {
 
     public init() {}
 
-    public func focusedWindowFrame() -> PixelRect? {
+    public func captureFocusedWindow() -> TargetWindow? {
         guard let window = focusedWindow() else { return nil }
-        guard let position = position(of: window), let size = size(of: window) else {
-            logger.error("could not read the focused window's frame")
+        return AXTargetWindow(element: window)
+    }
+
+    public func frame(of window: TargetWindow) -> PixelRect? {
+        guard let element = element(of: window) else { return nil }
+        guard let position = position(of: element), let size = size(of: element) else {
+            logger.error("could not read the captured window's frame")
             return nil
         }
         return PixelRect(
             x: position.x, y: position.y, width: size.width, height: size.height)
     }
 
-    public func applyFrame(_ frame: PixelRect) -> Bool {
-        guard let window = focusedWindow() else { return false }
+    public func applyFrame(_ frame: PixelRect, to window: TargetWindow) -> Bool {
+        guard let element = element(of: window) else { return false }
 
         let requestedPosition = CGPoint(x: frame.x, y: frame.y)
         let requestedSize = CGSize(width: frame.width, height: frame.height)
@@ -50,15 +69,15 @@ public final class AXWindowController: WindowControlling {
         // change which screen's constraints apply. Sizing first bounds the
         // window, positioning then anchors the top-left corner, and the
         // final size pass fixes what the move disturbed.
-        setSize(requestedSize, of: window)
-        setPosition(requestedPosition, of: window)
-        setSize(requestedSize, of: window)
+        setSize(requestedSize, of: element)
+        setPosition(requestedPosition, of: element)
+        setSize(requestedSize, of: element)
 
         // The AX calls can report success while the app clamps the frame
         // (minimum window sizes, menu bar constraints), so read the frame
         // back and log request versus actual — deviations must be
         // observable in the log, not silent.
-        guard let actualPosition = position(of: window), let actualSize = size(of: window) else {
+        guard let actualPosition = position(of: element), let actualSize = size(of: element) else {
             logger.error("could not read back the frame after applying it")
             return false
         }
@@ -97,6 +116,17 @@ public final class AXWindowController: WindowControlling {
         // Safe: the type id was checked above; AXUIElement has no Swift
         // conditional-cast support, so this is the canonical downcast.
         return (value as! AXUIElement)
+    }
+
+    /// Unwraps the AX element from a captured handle. The downcast is safe:
+    /// this controller is the only producer of ``TargetWindow`` values, so
+    /// every handle it is handed back is an ``AXTargetWindow``.
+    private func element(of window: TargetWindow) -> AXUIElement? {
+        guard let target = window as? AXTargetWindow else {
+            logger.error("target window was not created by this controller")
+            return nil
+        }
+        return target.element
     }
 
     // MARK: - AX attribute plumbing

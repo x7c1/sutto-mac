@@ -19,8 +19,35 @@ public enum LayoutExpressionEvaluator {
         containerSize: Double,
         screenSize: Double? = nil
     ) -> Double {
-        let result = resolve(expression, containerSize: containerSize, screenSize: screenSize)
-        return (result + 0.5).rounded(.down)
+        roundToPixel(
+            evaluateUnrounded(
+                expression, containerSize: containerSize, screenSize: screenSize))
+    }
+
+    /// Evaluates an expression to an exact, unrounded pixel value.
+    ///
+    /// ``evaluate(_:containerSize:screenSize:)`` rounds each expression
+    /// independently (the GNOME behavior, kept for placement parity), but
+    /// a caller that combines two expressions into one geometric edge —
+    /// position + size — must round the *combined* edge instead: rounding
+    /// the terms separately lets adjacent tiles disagree about their
+    /// shared edge by a pixel (`round(0.25w) + round(0.25w)` versus
+    /// `round(0.5w)`), which drew visible background gaps between tiling
+    /// layout regions. See `MiniaturePanelModel`'s region computation.
+    public static func evaluateUnrounded(
+        _ expression: LayoutExpression,
+        containerSize: Double,
+        screenSize: Double? = nil
+    ) -> Double {
+        resolve(expression, containerSize: containerSize, screenSize: screenSize)
+    }
+
+    /// The rounding convention shared by ``evaluate(_:containerSize:screenSize:)``
+    /// and edge-combining callers: nearest integer with ties toward
+    /// positive infinity, matching JavaScript's `Math.round` in the GNOME
+    /// implementation.
+    public static func roundToPixel(_ value: Double) -> Double {
+        (value + 0.5).rounded(.down)
     }
 
     /// Recursive evaluation helper resolving each node to unrounded pixels.

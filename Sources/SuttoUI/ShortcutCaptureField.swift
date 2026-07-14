@@ -28,7 +28,7 @@ final class ShortcutCaptureField: NSView {
         super.init(frame: .zero)
 
         wantsLayer = true
-        layer?.cornerRadius = 6
+        layer?.cornerRadius = SettingsMetrics.captureFieldCornerRadius
         layer?.borderWidth = 1
 
         label.alignment = .center
@@ -37,8 +37,9 @@ final class ShortcutCaptureField: NSView {
         NSLayoutConstraint.activate([
             label.centerXAnchor.constraint(equalTo: centerXAnchor),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
-            widthAnchor.constraint(greaterThanOrEqualToConstant: 140),
-            heightAnchor.constraint(equalToConstant: 24),
+            widthAnchor.constraint(
+                greaterThanOrEqualToConstant: SettingsMetrics.captureFieldMinWidth),
+            heightAnchor.constraint(equalToConstant: SettingsMetrics.captureFieldHeight),
             label.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -16),
         ])
         refreshAppearance()
@@ -84,6 +85,13 @@ final class ShortcutCaptureField: NSView {
     /// Command-modified presses bypass `keyDown` and arrive as key
     /// equivalents; while capturing they are shortcut input like any other
     /// press, so route them into the same handling.
+    ///
+    /// This also outranks the app's main menu: AppKit asks the key
+    /// window's view hierarchy `performKeyEquivalent` before falling
+    /// through to `NSApp.mainMenu`, so while capturing, combos the menu
+    /// also claims (⌘W Close, ⌘Q Quit) are recorded as shortcuts instead
+    /// of closing the window or quitting the app. Not capturing, the
+    /// field passes and the menu handles them normally.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard isCapturing, event.type == .keyDown else {
             return super.performKeyEquivalent(with: event)
@@ -109,24 +117,39 @@ final class ShortcutCaptureField: NSView {
 
     // MARK: - Appearance
 
+    /// Updates the label for the current state. The text colors are
+    /// dynamic system colors on an `NSTextField`, which re-resolves them
+    /// on appearance changes by itself; the *layer* colors are re-derived
+    /// in ``updateLayer()`` instead, which the `needsDisplay` here
+    /// schedules.
     private func refreshAppearance() {
         if isCapturing {
             label.stringValue = "Type shortcut…"
             label.textColor = .secondaryLabelColor
-            layer?.borderColor = NSColor.controlAccentColor.cgColor
         } else {
             label.stringValue = combo.displayString
             label.textColor = .labelColor
-            layer?.borderColor = NSColor.separatorColor.cgColor
         }
-        layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        needsDisplay = true
     }
 
-    /// Layer colors do not track appearance changes on their own; re-derive
-    /// them when the effective appearance flips (light/dark).
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        refreshAppearance()
+    /// Layer colors come from `updateLayer` and nowhere else.
+    override var wantsUpdateLayer: Bool { true }
+
+    /// The one place a semantic `NSColor` may be flattened to a `CGColor`:
+    /// AppKit guarantees the view's appearance is the *current drawing
+    /// appearance* here. Resolving `cgColor` elsewhere — notably in
+    /// `viewDidChangeEffectiveAppearance`, which this view once did — can
+    /// snapshot against the outgoing appearance: after a light→dark
+    /// switch the layer background stayed light while the label's dynamic
+    /// color flipped to white, rendering the combo white-on-white.
+    /// (AppKit calls this on appearance changes automatically for a
+    /// `wantsUpdateLayer` view; state changes schedule it via
+    /// `needsDisplay` in ``refreshAppearance()``.)
+    override func updateLayer() {
+        layer?.borderColor =
+            (isCapturing ? NSColor.controlAccentColor : NSColor.separatorColor).cgColor
+        layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
     }
 
     // MARK: - Accessibility

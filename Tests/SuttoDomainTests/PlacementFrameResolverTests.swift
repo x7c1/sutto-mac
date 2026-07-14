@@ -201,6 +201,61 @@ private let mouseOnPrimary = PixelPoint(x: 100, y: 100)
         }
     }
 
+    /// The explicit-target overload behind cross-monitor placement: the
+    /// clicked miniature names the screen; the window's own position never
+    /// enters the computation.
+    @Suite struct OnAnExplicitTargetScreen {
+        @Test func resolvesOnTheChosenSecondary() throws {
+            // Left half of the right-hand secondary's AX work area
+            // (1920, 205, 1600, 875).
+            let screens = ScreenFixtures.secondaryRight
+            let frame = try PlacementFrameResolver.resolve(
+                layout: leftHalf,
+                on: screens[1],
+                primary: screens[0]
+            )
+            #expect(frame == PixelRect(x: 1920, y: 205, width: 800, height: 875))
+        }
+
+        @Test func resolvesOnTheChosenPrimary() throws {
+            let screens = ScreenFixtures.secondaryRight
+            let frame = try PlacementFrameResolver.resolve(
+                layout: bottomHalf,
+                on: screens[0],
+                primary: screens[0]
+            )
+            // Bottom half of the primary's AX work area (0, 25, 1920, 1055):
+            // y = 25 + 528 (50% of 1055, rounded up), height 528.
+            #expect(frame == PixelRect(x: 0, y: 553, width: 1920, height: 528))
+        }
+
+        @Test func resolvesOnAScreenStackedAbove() throws {
+            let screens = ScreenFixtures.stackedAbove
+            let frame = try PlacementFrameResolver.resolve(
+                layout: leftHalf,
+                on: screens[1],
+                primary: screens[0]
+            )
+            // The stacked-above work area lands at negative AX y = -875.
+            #expect(frame == PixelRect(x: 0, y: -875, width: 800, height: 875))
+        }
+
+        @Test func propagatesInvalidLayoutExpressions() {
+            let broken = Layout(
+                label: "broken",
+                position: LayoutPosition(x: "abc", y: "0"),
+                size: LayoutSize(width: "50%", height: "100%")
+            )
+            #expect(throws: LayoutExpressionParseError.invalidTerm("abc")) {
+                try PlacementFrameResolver.resolve(
+                    layout: broken,
+                    on: ScreenFixtures.primary,
+                    primary: ScreenFixtures.primary
+                )
+            }
+        }
+    }
+
     @Suite struct EdgeCases {
         @Test func returnsNilWithoutScreens() throws {
             let frame = try PlacementFrameResolver.resolve(
