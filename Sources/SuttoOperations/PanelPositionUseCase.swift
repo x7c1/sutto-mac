@@ -63,4 +63,35 @@ public final class PanelPositionUseCase {
             mouseLocation: screens.mouseLocation()
         )
     }
+
+    /// The frame the panel should occupy when anchored on an explicit
+    /// point rather than the captured window — the v0.4 edge-trigger path,
+    /// where the panel opens at (and follows) the cursor instead of the
+    /// window center. Uses the same ``SuttoDomain/PanelPositionResolver``
+    /// (center-on-anchor + work-area clamp) as ``panelFrame(width:height:)``,
+    /// so an anchor near a screen edge is pushed back inside the work area
+    /// identically; only the anchor source differs.
+    ///
+    /// Returns `nil` only when there are no screens (the resolver has
+    /// nothing to clamp against); unlike the window-centered path it does
+    /// not depend on a captured window frame.
+    ///
+    /// - Parameters:
+    ///   - width: The panel's width in points.
+    ///   - height: The panel's height in points.
+    ///   - anchor: The point to center the panel on, in AppKit coordinates
+    ///     (global bottom-left origin) — the cursor at edge-trigger time.
+    public func panelFrame(
+        width: Double,
+        height: Double,
+        anchoredAt anchor: PixelPoint
+    ) -> PixelRect? {
+        PanelPositionResolver.resolve(
+            anchor: anchor,
+            panelWidth: width,
+            panelHeight: height,
+            screens: screens.screens(),
+            mouseLocation: screens.mouseLocation()
+        )
+    }
 }
