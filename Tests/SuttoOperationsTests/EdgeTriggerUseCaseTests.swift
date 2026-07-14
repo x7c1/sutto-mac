@@ -127,6 +127,7 @@ import Testing
         let windows: WindowControllerFake
         let dwell: SchedulerFake
         let throttle: SchedulerFake
+        let hide: SchedulerFake
         let panel: PanelSpy
     }
 
@@ -139,6 +140,7 @@ import Testing
         let windows = WindowControllerFake(captureSucceeds: captureSucceeds, frame: windowFrame)
         let dwell = SchedulerFake()
         let throttle = SchedulerFake()
+        let hide = SchedulerFake()
         let panel = PanelSpy()
         let useCase = EdgeTriggerUseCase(
             drags: drags,
@@ -146,12 +148,13 @@ import Testing
             screens: ScreenProviderStub(screens: screens),
             panel: panel,
             dwellTimer: dwell,
-            throttle: throttle
+            throttle: throttle,
+            hideTimer: hide
         )
         useCase.start()
         return Harness(
             useCase: useCase, drags: drags, windows: windows,
-            dwell: dwell, throttle: throttle, panel: panel)
+            dwell: dwell, throttle: throttle, hide: hide, panel: panel)
     }
 
     /// Moves the fake window's frame origin so the next `frame(of:)` read
@@ -175,6 +178,7 @@ import Testing
         #expect(h.drags.stopCount == 1)
         #expect(h.dwell.cancelCount >= 1)
         #expect(h.throttle.cancelCount >= 1)
+        #expect(h.hide.cancelCount >= 1)
     }
 
     // MARK: - Window-move discrimination
@@ -350,26 +354,34 @@ import Testing
         #expect(h.dwell.scheduleCount == dwellBefore + 1)
     }
 
-    // MARK: - Hide on leaving the edge mid-drag
+    // MARK: - Leave-edge grace before hiding
 
-    @Test func leavingTheEdgeMidDragHidesThePanel() {
+    /// Leaving the edge mid-drag no longer hides at once: it arms the grace
+    /// timer and keeps the panel. Firing the grace hides the panel.
+    @Test func leavingTheEdgeMidDragArmsTheGraceThenHidesOnFire() {
         let h = makeHarness()
 
         h.drags.emit(.began(PixelPoint(x: 300, y: 300)))
         moveWindow(h.windows, by: 50)
-        h.drags.emit(.moved(PixelPoint(x: 5, y: 400)))  // left edge → arm
+        h.drags.emit(.moved(PixelPoint(x: 5, y: 400)))  // left edge → arm dwell
         h.dwell.fire()  // show
         #expect(h.panel.calls == [.show(PixelPoint(x: 5, y: 400))])
 
         // Clear the leading throttle window, then pull the pointer off the
-        // edge: the panel hides immediately.
+        // edge: the grace timer arms but the panel stays up.
         h.throttle.fire()
         h.drags.emit(.moved(PixelPoint(x: 500, y: 500)))  // well off any edge
+        #expect(h.hide.scheduleCount == 1)
+        #expect(h.panel.calls == [.show(PixelPoint(x: 5, y: 400))])  // not hidden yet
 
+        // The grace elapses with the pointer still off the edge: now hide.
+        h.hide.fire()
         #expect(h.panel.calls.last == .hide)
     }
 
-    @Test func afterLeavingTheEdgeReApproachReTriggersWithinTheSameDrag() {
+    /// Re-entering the edge before the grace elapses cancels the pending hide
+    /// and keeps the panel — the panel is never hidden.
+    @Test func reEnteringTheEdgeWithinTheGraceCancelsTheHide() {
         let h = makeHarness()
 
         h.drags.emit(.began(PixelPoint(x: 300, y: 300)))
@@ -377,7 +389,29 @@ import Testing
         h.drags.emit(.moved(PixelPoint(x: 5, y: 400)))
         h.dwell.fire()  // show
         h.throttle.fire()
-        h.drags.emit(.moved(PixelPoint(x: 500, y: 500)))  // off edge → hide
+        h.drags.emit(.moved(PixelPoint(x: 500, y: 500)))  // off edge → arm grace
+        #expect(h.hide.scheduleCount == 1)
+        #expect(h.hide.isScheduled)
+
+        // Return to the edge within the grace: the pending hide is cancelled
+        // and the panel was never hidden.
+        h.throttle.fire()
+        h.drags.emit(.moved(PixelPoint(x: 8, y: 420)))  // back at the left edge
+        #expect(h.hide.cancelCount >= 1)
+        #expect(!h.hide.isScheduled)
+        #expect(!h.panel.calls.contains(.hide))
+    }
+
+    @Test func afterTheGraceHidesReApproachReTriggersWithinTheSameDrag() {
+        let h = makeHarness()
+
+        h.drags.emit(.began(PixelPoint(x: 300, y: 300)))
+        moveWindow(h.windows, by: 50)
+        h.drags.emit(.moved(PixelPoint(x: 5, y: 400)))
+        h.dwell.fire()  // show
+        h.throttle.fire()
+        h.drags.emit(.moved(PixelPoint(x: 500, y: 500)))  // off edge → arm grace
+        h.hide.fire()  // grace elapsed → hide
         #expect(h.panel.calls.last == .hide)
 
         // Re-approach the edge within the same drag: the dwell re-arms and
@@ -391,10 +425,11 @@ import Testing
     }
 
     /// The real panel's `hide()` fires `onDismiss`, which calls
-    /// `notifyPanelDismissed()` synchronously. That re-entrant path must not
-    /// corrupt state or loop, and — because the drag is still live — must
-    /// leave the per-drag tracking intact so a re-approach re-shows.
-    @Test func reEntrantHideKeepsTheDragLiveWithoutLooping() {
+    /// `notifyPanelDismissed()` synchronously. When the grace elapses and
+    /// hides the panel, that re-entrant path must not corrupt state or loop,
+    /// and — because the drag is still live — must leave the per-drag tracking
+    /// intact so a re-approach re-shows.
+    @Test func reEntrantHideOnGraceElapseKeepsTheDragLiveWithoutLooping() {
         let h = makeHarness()
         h.panel.onHide = { [weak useCase = h.useCase] in
             useCase?.notifyPanelDismissed()
@@ -406,8 +441,10 @@ import Testing
         h.dwell.fire()  // show
         h.throttle.fire()
 
-        // Leave the edge → hidePanel → hide() → notifyPanelDismissed re-entrant.
+        // Leave the edge → arm grace; firing it hides → hide() → onDismiss →
+        // notifyPanelDismissed re-entrant (policy already in `dragging`).
         h.drags.emit(.moved(PixelPoint(x: 500, y: 500)))
+        h.hide.fire()
         #expect(h.panel.calls == [.show(PixelPoint(x: 5, y: 400)), .hide])
 
         // Drag still live: re-approach re-arms and re-shows without a fresh

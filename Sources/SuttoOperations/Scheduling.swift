@@ -2,10 +2,10 @@
 /// operations layer and implemented by the infra layer on top of a main
 /// run-loop `Timer`.
 ///
-/// ``EdgeTriggerUseCase`` owns two of these — one for the 200 ms dwell timer
-/// and one for the ~50 ms drag-move throttle — so both the dwell and the
-/// throttle are testable against a fake that fires on demand instead of a
-/// real clock. Each scheduler tracks at most one pending action: scheduling
+/// ``EdgeTriggerUseCase`` owns three of these — one for the 200 ms dwell
+/// timer, one for the ~50 ms drag-move throttle, and one for the 500 ms
+/// leave-edge grace — so each is testable against a fake that fires on demand
+/// instead of a real clock. Each scheduler tracks at most one pending action: scheduling
 /// again replaces the previous one, matching the "one hide timer" pattern the
 /// UI layer already uses for auto-hide.
 ///

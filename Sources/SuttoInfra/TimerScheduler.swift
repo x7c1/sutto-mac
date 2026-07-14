@@ -7,8 +7,8 @@ import SuttoOperations
 /// scheduling replaces the pending timer, and the fire callback hops through
 /// `MainActor.assumeIsolated` because a run-loop timer's block is delivered on
 /// the main thread but is not statically isolated. One instance owns exactly
-/// one timer, so ``EdgeTriggerUseCase`` uses two — one for the dwell, one for
-/// the throttle.
+/// one timer, so ``EdgeTriggerUseCase`` uses three — one for the dwell, one
+/// for the throttle, one for the leave-edge grace.
 @MainActor
 public final class TimerScheduler: Scheduling {
     private var timer: Timer?

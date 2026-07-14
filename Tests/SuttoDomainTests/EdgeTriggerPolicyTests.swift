@@ -128,9 +128,10 @@ import Testing
         #expect(policy.state == .triggered(dragging: true))
     }
 
-    /// Pulling away from the edge mid-drag hides the panel and drops back to
-    /// plain `dragging` (NOT idle) — the user changed their mind.
-    @Test func leavingTheEdgeWhileDraggingHidesThePanelAndDropsToDragging() {
+    /// Pulling away from the edge mid-drag does NOT hide the panel outright:
+    /// it arms the grace timer and enters the pending-hide phase, keeping the
+    /// panel up (a brief dip off the edge should not flick it away).
+    @Test func leavingTheEdgeWhileDraggingArmsTheGraceAndStaysPending() {
         var policy = EdgeTriggerPolicy()
         _ = policy.handle(.dragBegan)
         _ = policy.handle(moved(edge))
@@ -138,18 +139,81 @@ import Testing
 
         let effect = policy.handle(moved(center)) // well off the edge
 
-        #expect(effect == .hidePanel)
-        #expect(policy.state == .dragging)
+        #expect(effect == .armHideTimer)
+        #expect(policy.state == .triggeredPendingHide)
     }
 
-    /// After leaving the edge hides the panel, re-approaching an edge and
-    /// dwelling re-triggers it — all within the same, still-live drag.
-    @Test func reApproachingAfterLeavingReTriggersWithinTheSameDrag() {
+    /// Returning to the edge before the grace elapses cancels the pending hide
+    /// and keeps the panel, back in the live-drag triggered state.
+    @Test func reEnteringTheEdgeWithinTheGraceCancelsTheHideAndKeepsThePanel() {
         var policy = EdgeTriggerPolicy()
         _ = policy.handle(.dragBegan)
         _ = policy.handle(moved(edge))
         _ = policy.handle(.dwellElapsed)
-        _ = policy.handle(moved(center)) // hidePanel → dragging
+        _ = policy.handle(moved(center)) // armHideTimer → pending
+
+        let effect = policy.handle(moved(edge)) // back at the edge
+
+        #expect(effect == .cancelHideTimer)
+        #expect(policy.state == .triggered(dragging: true))
+    }
+
+    /// While pending, a move that stays off the edge keeps following the
+    /// cursor (the panel does not freeze) and the grace keeps running.
+    @Test func stayingOffTheEdgeWhilePendingFollowsTheCursorAndStaysPending() {
+        var policy = EdgeTriggerPolicy()
+        _ = policy.handle(.dragBegan)
+        _ = policy.handle(moved(edge))
+        _ = policy.handle(.dwellElapsed)
+        _ = policy.handle(moved(center)) // armHideTimer → pending
+
+        let target = PixelPoint(x: 40, y: 40) // still off the edge
+        let effect = policy.handle(moved(target))
+
+        #expect(effect == .movePanel(to: target))
+        #expect(policy.state == .triggeredPendingHide)
+    }
+
+    /// Letting the grace fully elapse while off the edge hides the panel and
+    /// drops back to plain `dragging` (NOT idle).
+    @Test func hideTimerElapsedWhilePendingHidesThePanelAndDropsToDragging() {
+        var policy = EdgeTriggerPolicy()
+        _ = policy.handle(.dragBegan)
+        _ = policy.handle(moved(edge))
+        _ = policy.handle(.dwellElapsed)
+        _ = policy.handle(moved(center)) // armHideTimer → pending
+
+        let effect = policy.handle(.hideTimerElapsed)
+
+        #expect(effect == .hidePanel)
+        #expect(policy.state == .dragging)
+    }
+
+    /// A stale grace timer that fires after the pointer already returned to
+    /// the edge is ignored — it does not hide the (kept) panel.
+    @Test func staleHideTimerElapsedAfterReEnteringTheEdgeIsIgnored() {
+        var policy = EdgeTriggerPolicy()
+        _ = policy.handle(.dragBegan)
+        _ = policy.handle(moved(edge))
+        _ = policy.handle(.dwellElapsed)
+        _ = policy.handle(moved(center)) // pending
+        _ = policy.handle(moved(edge)) // cancelHideTimer → triggered(true)
+
+        let effect = policy.handle(.hideTimerElapsed) // stale fire
+
+        #expect(effect == .none)
+        #expect(policy.state == .triggered(dragging: true))
+    }
+
+    /// After the grace elapses and hides the panel, re-approaching an edge and
+    /// dwelling re-triggers it — all within the same, still-live drag.
+    @Test func reApproachingAfterTheGraceElapsedReTriggersWithinTheSameDrag() {
+        var policy = EdgeTriggerPolicy()
+        _ = policy.handle(.dragBegan)
+        _ = policy.handle(moved(edge))
+        _ = policy.handle(.dwellElapsed)
+        _ = policy.handle(moved(center)) // armHideTimer → pending
+        _ = policy.handle(.hideTimerElapsed) // hidePanel → dragging
 
         #expect(policy.handle(moved(edge)) == .armDwellTimer)
         #expect(policy.state == .atEdgeHolding)
@@ -176,19 +240,51 @@ import Testing
         }
     }
 
-    /// `panelDismissed` while `dragging` (the re-entrant hide callback) must
-    /// be a no-op so the live drag survives — it does NOT reset to idle.
+    /// `panelDismissed` while `dragging` (the re-entrant hide callback fired
+    /// synchronously by `hidePanel`) must be a no-op so the live drag survives
+    /// — it does NOT reset to idle.
     @Test func panelDismissedWhileDraggingIsANoOp() {
         var policy = EdgeTriggerPolicy()
         _ = policy.handle(.dragBegan)
         _ = policy.handle(moved(edge))
         _ = policy.handle(.dwellElapsed)
-        _ = policy.handle(moved(center)) // hidePanel → dragging
+        _ = policy.handle(moved(center)) // armHideTimer → pending
+        _ = policy.handle(.hideTimerElapsed) // hidePanel → dragging
 
         let effect = policy.handle(.panelDismissed)
 
         #expect(effect == .none)
         #expect(policy.state == .dragging)
+    }
+
+    /// A genuine dismissal while the grace is pending cancels the timer and
+    /// returns to idle.
+    @Test func panelDismissedWhilePendingCancelsTheGraceAndReturnsToIdle() {
+        var policy = EdgeTriggerPolicy()
+        _ = policy.handle(.dragBegan)
+        _ = policy.handle(moved(edge))
+        _ = policy.handle(.dwellElapsed)
+        _ = policy.handle(moved(center)) // armHideTimer → pending
+
+        let effect = policy.handle(.panelDismissed)
+
+        #expect(effect == .cancelHideTimer)
+        #expect(policy.state == .idle)
+    }
+
+    /// Dropping the drag while the grace is pending keeps the panel for layout
+    /// selection and cancels the now-irrelevant grace.
+    @Test func dragEndedWhilePendingCancelsTheGraceAndKeepsThePanel() {
+        var policy = EdgeTriggerPolicy()
+        _ = policy.handle(.dragBegan)
+        _ = policy.handle(moved(edge))
+        _ = policy.handle(.dwellElapsed)
+        _ = policy.handle(moved(center)) // armHideTimer → pending
+
+        let effect = policy.handle(.dragEnded)
+
+        #expect(effect == .cancelHideTimer)
+        #expect(policy.state == .triggered(dragging: false))
     }
 
     /// `panelDismissed` from `idle` or `atEdgeHolding` is likewise a no-op,
@@ -283,10 +379,10 @@ import Testing
     }
 
     /// A pointer oscillating across the threshold after the panel is shown
-    /// follows while inside the band, hides on leaving it, and re-arms on the
-    /// next re-entry — one `showPanel` per dwell, never a spurious second one
-    /// on the same at-edge lingering.
-    @Test func jitterAcrossTheThresholdFollowsHidesAndReArms() {
+    /// follows while inside the band, arms the grace on leaving it, follows
+    /// while pending, and cancels the grace on re-entry — the panel is never
+    /// hidden by a quick dip out and back.
+    @Test func jitterAcrossTheThresholdFollowsArmsGraceAndCancelsOnReEntry() {
         var policy = EdgeTriggerPolicy()
         _ = policy.handle(.dragBegan)
         _ = policy.handle(moved(edge))
@@ -294,15 +390,15 @@ import Testing
 
         // Still in the band: follow.
         #expect(policy.handle(moved(PixelPoint(x: 5, y: 40))) == .movePanel(to: PixelPoint(x: 5, y: 40)))
-        // Left the band: hide, drop to dragging.
-        #expect(policy.handle(moved(PixelPoint(x: 20, y: 40))) == .hidePanel)
-        #expect(policy.state == .dragging)
-        // Re-entered the band while dragging: re-arm (no immediate show).
-        #expect(policy.handle(moved(PixelPoint(x: 3, y: 40))) == .armDwellTimer)
-        #expect(policy.state == .atEdgeHolding)
-        // Left again before the dwell elapses: cancel and back to dragging.
-        #expect(policy.handle(moved(PixelPoint(x: 50, y: 40))) == .cancelDwellTimer)
-        #expect(policy.state == .dragging)
+        // Left the band: arm the grace, enter pending (panel kept).
+        #expect(policy.handle(moved(PixelPoint(x: 20, y: 40))) == .armHideTimer)
+        #expect(policy.state == .triggeredPendingHide)
+        // Still off the edge: keep following, grace still running.
+        #expect(policy.handle(moved(PixelPoint(x: 30, y: 40))) == .movePanel(to: PixelPoint(x: 30, y: 40)))
+        #expect(policy.state == .triggeredPendingHide)
+        // Re-entered the band before the grace elapsed: cancel and keep the panel.
+        #expect(policy.handle(moved(PixelPoint(x: 3, y: 40))) == .cancelHideTimer)
+        #expect(policy.state == .triggered(dragging: true))
     }
 
     // MARK: - Behavior 8: all four edges trigger
