@@ -115,7 +115,7 @@ public final class LayoutPanel {
         let size = panel.frame.size
         if let frame = position.panelFrame(width: size.width, height: size.height) {
             panel.setFrameOrigin(NSPoint(x: frame.x, y: frame.y))
-        } else if let screen = screenWithMouse() {
+        } else if let screen = NSScreen.withMouse() {
             let visible = screen.visibleFrame
             panel.setFrameOrigin(
                 NSPoint(
@@ -400,12 +400,6 @@ public final class LayoutPanel {
             stack.trailingAnchor.constraint(equalTo: background.trailingAnchor),
         ])
         return background
-    }
-
-    private func screenWithMouse() -> NSScreen? {
-        let mouse = NSEvent.mouseLocation
-        return NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
-            ?? NSScreen.main
     }
 
     // MARK: - Auto-hide

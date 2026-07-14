@@ -67,7 +67,7 @@ public final class SettingsWindowController {
         let size = window.frame.size
         if let frame = position.panelFrame(width: size.width, height: size.height) {
             window.setFrameOrigin(NSPoint(x: frame.x, y: frame.y))
-        } else if let screen = screenWithMouse() {
+        } else if let screen = NSScreen.withMouse() {
             let visible = screen.visibleFrame
             window.setFrameOrigin(
                 NSPoint(
@@ -136,15 +136,6 @@ public final class SettingsWindowController {
         frame.origin.y -= target.height - contentView.frame.height
         frame.size.height += target.height - contentView.frame.height
         window.setFrame(frame, display: true, animate: animated && window.isVisible)
-    }
-
-    /// The screen containing the mouse pointer (falling back to the main
-    /// screen), used as the anchor when no focused window is readable —
-    /// the same fallback ``LayoutPanel`` uses so the two land consistently.
-    private func screenWithMouse() -> NSScreen? {
-        let mouse = NSEvent.mouseLocation
-        return NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
-            ?? NSScreen.main
     }
 
     // MARK: - Window construction
