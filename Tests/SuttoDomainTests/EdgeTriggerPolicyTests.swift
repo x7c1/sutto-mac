@@ -113,24 +113,24 @@ import Testing
         #expect(policy.state == .dragging)
     }
 
-    // MARK: - Behavior 5: latch + cursor-follow
+    // MARK: - Behavior 5: cursor-follow within the band, hide on leaving it
 
-    @Test func whileTriggeredEachMoveFollowsTheCursor() {
+    @Test func whileTriggeredEachMoveWithinTheBandFollowsTheCursor() {
         var policy = EdgeTriggerPolicy()
         _ = policy.handle(.dragBegan)
         _ = policy.handle(moved(edge))
         _ = policy.handle(.dwellElapsed)
 
-        let target = PixelPoint(x: 30, y: 20)
+        let target = PixelPoint(x: 8, y: 30) // still within the min-x band
         let effect = policy.handle(moved(target))
 
         #expect(effect == .movePanel(to: target))
         #expect(policy.state == .triggered(dragging: true))
     }
 
-    /// Once triggered, leaving the edge must NOT re-arm, cancel, or hide —
-    /// the panel just follows the cursor (dismissal-prevention latch).
-    @Test func leavingTheEdgeWhileTriggeredDoesNotCancelOrHide() {
+    /// Pulling away from the edge mid-drag hides the panel and drops back to
+    /// plain `dragging` (NOT idle) — the user changed their mind.
+    @Test func leavingTheEdgeWhileDraggingHidesThePanelAndDropsToDragging() {
         var policy = EdgeTriggerPolicy()
         _ = policy.handle(.dragBegan)
         _ = policy.handle(moved(edge))
@@ -138,8 +138,71 @@ import Testing
 
         let effect = policy.handle(moved(center)) // well off the edge
 
-        #expect(effect == .movePanel(to: center))
+        #expect(effect == .hidePanel)
+        #expect(policy.state == .dragging)
+    }
+
+    /// After leaving the edge hides the panel, re-approaching an edge and
+    /// dwelling re-triggers it — all within the same, still-live drag.
+    @Test func reApproachingAfterLeavingReTriggersWithinTheSameDrag() {
+        var policy = EdgeTriggerPolicy()
+        _ = policy.handle(.dragBegan)
+        _ = policy.handle(moved(edge))
+        _ = policy.handle(.dwellElapsed)
+        _ = policy.handle(moved(center)) // hidePanel → dragging
+
+        #expect(policy.handle(moved(edge)) == .armDwellTimer)
+        #expect(policy.state == .atEdgeHolding)
+        #expect(policy.handle(.dwellElapsed) == .showPanel(at: edge))
         #expect(policy.state == .triggered(dragging: true))
+    }
+
+    /// Staying within the edge band across several moves keeps following the
+    /// cursor — it never re-arms or re-shows.
+    @Test func stayingAtTheEdgeWhileTriggeredKeepsFollowing() {
+        var policy = EdgeTriggerPolicy()
+        _ = policy.handle(.dragBegan)
+        _ = policy.handle(moved(edge))
+        _ = policy.handle(.dwellElapsed)
+
+        let atEdgePoints = [
+            PixelPoint(x: 5, y: 40),
+            PixelPoint(x: 8, y: 30),
+            PixelPoint(x: 2, y: 50),
+        ]
+        for point in atEdgePoints {
+            #expect(policy.handle(moved(point)) == .movePanel(to: point))
+            #expect(policy.state == .triggered(dragging: true))
+        }
+    }
+
+    /// `panelDismissed` while `dragging` (the re-entrant hide callback) must
+    /// be a no-op so the live drag survives — it does NOT reset to idle.
+    @Test func panelDismissedWhileDraggingIsANoOp() {
+        var policy = EdgeTriggerPolicy()
+        _ = policy.handle(.dragBegan)
+        _ = policy.handle(moved(edge))
+        _ = policy.handle(.dwellElapsed)
+        _ = policy.handle(moved(center)) // hidePanel → dragging
+
+        let effect = policy.handle(.panelDismissed)
+
+        #expect(effect == .none)
+        #expect(policy.state == .dragging)
+    }
+
+    /// `panelDismissed` from `idle` or `atEdgeHolding` is likewise a no-op,
+    /// leaving the state untouched.
+    @Test func panelDismissedOutsideTriggeredIsANoOp() {
+        var idle = EdgeTriggerPolicy()
+        #expect(idle.handle(.panelDismissed) == .none)
+        #expect(idle.state == .idle)
+
+        var holding = EdgeTriggerPolicy()
+        _ = holding.handle(.dragBegan)
+        _ = holding.handle(moved(edge))
+        #expect(holding.handle(.panelDismissed) == .none)
+        #expect(holding.state == .atEdgeHolding)
     }
 
     // MARK: - Behavior 6: drag end keeps a shown panel
@@ -219,28 +282,27 @@ import Testing
         #expect(policy.state == .atEdgeHolding)
     }
 
-    /// A pointer oscillating around the threshold after the panel is shown
-    /// never produces a second `showPanel` (or any arm/cancel) — only follow
-    /// moves.
-    @Test func jitterWhileTriggeredNeverShowsThePanelAgain() {
+    /// A pointer oscillating across the threshold after the panel is shown
+    /// follows while inside the band, hides on leaving it, and re-arms on the
+    /// next re-entry — one `showPanel` per dwell, never a spurious second one
+    /// on the same at-edge lingering.
+    @Test func jitterAcrossTheThresholdFollowsHidesAndReArms() {
         var policy = EdgeTriggerPolicy()
         _ = policy.handle(.dragBegan)
         _ = policy.handle(moved(edge))
         _ = policy.handle(.dwellElapsed)
 
-        let jitter = [
-            PixelPoint(x: 5, y: 40), // at edge
-            PixelPoint(x: 20, y: 40), // off edge
-            PixelPoint(x: 3, y: 40), // at edge again
-            PixelPoint(x: 50, y: 40), // center
-        ]
-        for point in jitter {
-            let effect = policy.handle(moved(point))
-            #expect(effect == .movePanel(to: point))
-        }
-        // A late dwell timer that somehow survived must not re-show.
-        #expect(policy.handle(.dwellElapsed) == .none)
-        #expect(policy.state == .triggered(dragging: true))
+        // Still in the band: follow.
+        #expect(policy.handle(moved(PixelPoint(x: 5, y: 40))) == .movePanel(to: PixelPoint(x: 5, y: 40)))
+        // Left the band: hide, drop to dragging.
+        #expect(policy.handle(moved(PixelPoint(x: 20, y: 40))) == .hidePanel)
+        #expect(policy.state == .dragging)
+        // Re-entered the band while dragging: re-arm (no immediate show).
+        #expect(policy.handle(moved(PixelPoint(x: 3, y: 40))) == .armDwellTimer)
+        #expect(policy.state == .atEdgeHolding)
+        // Left again before the dwell elapses: cancel and back to dragging.
+        #expect(policy.handle(moved(PixelPoint(x: 50, y: 40))) == .cancelDwellTimer)
+        #expect(policy.state == .dragging)
     }
 
     // MARK: - Behavior 8: all four edges trigger
