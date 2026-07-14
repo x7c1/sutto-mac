@@ -89,17 +89,25 @@ import Testing
         }
     }
 
-    /// A spy `EdgeTriggerPanel` recording every call in order.
+    /// A spy `EdgeTriggerPanel` recording every call in order. `onHide` lets a
+    /// test model the real panel's re-entrant dismissal: `LayoutPanel.hide()`
+    /// fires `onDismiss`, which calls `notifyPanelDismissed()` synchronously.
     private final class PanelSpy: EdgeTriggerPanel {
         enum Call: Equatable {
             case show(PixelPoint)
             case move(PixelPoint)
+            case hide
         }
 
         private(set) var calls: [Call] = []
+        var onHide: (@MainActor () -> Void)?
 
         func show(at point: PixelPoint) { calls.append(.show(point)) }
         func move(to point: PixelPoint) { calls.append(.move(point)) }
+        func hide() {
+            calls.append(.hide)
+            onHide?()
+        }
     }
 
     // MARK: - Fixture
@@ -287,11 +295,11 @@ import Testing
         h.drags.emit(.moved(PixelPoint(x: 5, y: 400)))  // edge → arm dwell
         h.dwell.fire()  // show panel
 
-        // A further move while still dragging follows the cursor.
+        // A further move that stays within the edge band follows the cursor.
         h.throttle.fire()  // clear the leading throttle window
-        h.drags.emit(.moved(PixelPoint(x: 20, y: 450)))
+        h.drags.emit(.moved(PixelPoint(x: 8, y: 450)))  // still at the left edge
 
-        #expect(h.panel.calls.last == .move(PixelPoint(x: 20, y: 450)))
+        #expect(h.panel.calls.last == .move(PixelPoint(x: 8, y: 450)))
     }
 
     @Test func dragEndedStopsFollowButKeepsPanelShown() {
@@ -340,5 +348,73 @@ import Testing
         moveWindow(h.windows, by: 50)
         h.drags.emit(.moved(PixelPoint(x: 5, y: 400)))
         #expect(h.dwell.scheduleCount == dwellBefore + 1)
+    }
+
+    // MARK: - Hide on leaving the edge mid-drag
+
+    @Test func leavingTheEdgeMidDragHidesThePanel() {
+        let h = makeHarness()
+
+        h.drags.emit(.began(PixelPoint(x: 300, y: 300)))
+        moveWindow(h.windows, by: 50)
+        h.drags.emit(.moved(PixelPoint(x: 5, y: 400)))  // left edge → arm
+        h.dwell.fire()  // show
+        #expect(h.panel.calls == [.show(PixelPoint(x: 5, y: 400))])
+
+        // Clear the leading throttle window, then pull the pointer off the
+        // edge: the panel hides immediately.
+        h.throttle.fire()
+        h.drags.emit(.moved(PixelPoint(x: 500, y: 500)))  // well off any edge
+
+        #expect(h.panel.calls.last == .hide)
+    }
+
+    @Test func afterLeavingTheEdgeReApproachReTriggersWithinTheSameDrag() {
+        let h = makeHarness()
+
+        h.drags.emit(.began(PixelPoint(x: 300, y: 300)))
+        moveWindow(h.windows, by: 50)
+        h.drags.emit(.moved(PixelPoint(x: 5, y: 400)))
+        h.dwell.fire()  // show
+        h.throttle.fire()
+        h.drags.emit(.moved(PixelPoint(x: 500, y: 500)))  // off edge → hide
+        #expect(h.panel.calls.last == .hide)
+
+        // Re-approach the edge within the same drag: the dwell re-arms and
+        // firing it re-shows the panel — no new drag-began needed.
+        let dwellBefore = h.dwell.scheduleCount
+        h.throttle.fire()
+        h.drags.emit(.moved(PixelPoint(x: 8, y: 420)))  // back at the left edge
+        #expect(h.dwell.scheduleCount == dwellBefore + 1)
+        h.dwell.fire()
+        #expect(h.panel.calls.last == .show(PixelPoint(x: 8, y: 420)))
+    }
+
+    /// The real panel's `hide()` fires `onDismiss`, which calls
+    /// `notifyPanelDismissed()` synchronously. That re-entrant path must not
+    /// corrupt state or loop, and — because the drag is still live — must
+    /// leave the per-drag tracking intact so a re-approach re-shows.
+    @Test func reEntrantHideKeepsTheDragLiveWithoutLooping() {
+        let h = makeHarness()
+        h.panel.onHide = { [weak useCase = h.useCase] in
+            useCase?.notifyPanelDismissed()
+        }
+
+        h.drags.emit(.began(PixelPoint(x: 300, y: 300)))
+        moveWindow(h.windows, by: 50)
+        h.drags.emit(.moved(PixelPoint(x: 5, y: 400)))
+        h.dwell.fire()  // show
+        h.throttle.fire()
+
+        // Leave the edge → hidePanel → hide() → notifyPanelDismissed re-entrant.
+        h.drags.emit(.moved(PixelPoint(x: 500, y: 500)))
+        #expect(h.panel.calls == [.show(PixelPoint(x: 5, y: 400)), .hide])
+
+        // Drag still live: re-approach re-arms and re-shows without a fresh
+        // drag-began, proving the re-entrant dismissal left tracking intact.
+        h.throttle.fire()
+        h.drags.emit(.moved(PixelPoint(x: 8, y: 420)))
+        h.dwell.fire()
+        #expect(h.panel.calls.last == .show(PixelPoint(x: 8, y: 420)))
     }
 }

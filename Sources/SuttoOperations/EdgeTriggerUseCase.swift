@@ -139,8 +139,17 @@ public final class EdgeTriggerUseCase {
     /// was selected, or it auto-hid, or a click outside or Escape closed it.
     /// Returns the policy to ``SuttoDomain/EdgeTriggerPolicy/State/idle`` and
     /// cancels any pending dwell timer and drag tracking.
+    ///
+    /// This is also re-entered synchronously from the `hidePanel` effect
+    /// (`panel.hide()` fires `onDismiss`, which calls this). In that case the
+    /// drag is still live and the policy is already in `dragging`, so
+    /// `panelDismissed` is a no-op and the state does not return to idle: the
+    /// per-drag teardown below is skipped so the drag survives and a
+    /// re-approach can re-arm. The teardown runs only when the dismissal
+    /// actually ended the interaction (policy back to idle).
     public func notifyPanelDismissed() {
         apply(policy.handle(.panelDismissed))
+        guard policy.state == .idle else { return }
         dwellTimer.cancel()
         throttle.cancel()
         resetThrottle()
@@ -270,6 +279,14 @@ public final class EdgeTriggerUseCase {
             panel.show(at: point)
         case let .movePanel(point):
             panel.move(to: point)
+        case .hidePanel:
+            // The drag left the edge band: hide the panel. `hide()` fires the
+            // panel's `onDismiss`, which routes back through
+            // `notifyPanelDismissed()` synchronously — a no-op on the policy
+            // here (it is already in `dragging`), so the live drag survives.
+            // Deliberately no per-drag reset: the drag is still ongoing and a
+            // re-approach must re-arm.
+            panel.hide()
         }
     }
 

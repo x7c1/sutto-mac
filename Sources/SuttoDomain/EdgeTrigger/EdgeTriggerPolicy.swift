@@ -34,9 +34,12 @@ public struct EdgeTriggerPolicy: Equatable, Sendable {
         /// there; the dwell timer is armed but the panel is not shown yet.
         case atEdgeHolding
         /// The panel has been shown. `dragging` records whether the drag
-        /// that triggered it is still in progress: while it is, pointer
-        /// moves make the panel follow the cursor; once the drag ends the
-        /// panel stays put until it is dismissed.
+        /// that triggered it is still in progress. While it is, a pointer
+        /// move that stays within the edge band follows the cursor, while a
+        /// move that leaves the band hides the panel and drops back to
+        /// ``dragging`` (the user changed their mind — a re-approach re-arms
+        /// within the same drag). Once the drag ends the panel stays put and
+        /// leaving the edge no longer matters; UI dismissal governs it.
         case triggered(dragging: Bool)
     }
 
@@ -75,6 +78,11 @@ public struct EdgeTriggerPolicy: Equatable, Sendable {
         /// Move the already-shown panel to `point` (cursor-follow during
         /// drag).
         case movePanel(to: PixelPoint)
+        /// Hide the panel. Emitted when the pointer leaves the edge band
+        /// while the panel is up and the drag is still live — the user is
+        /// pulling away, so the panel is dismissed and the interaction drops
+        /// back to plain dragging, ready to re-arm on a fresh approach.
+        case hidePanel
     }
 
     /// The current state of the interaction.
@@ -163,14 +171,22 @@ public struct EdgeTriggerPolicy: Equatable, Sendable {
 
         case let .triggered(dragging):
             guard dragging else {
-                // The drag already ended; a shown panel no longer follows the
-                // cursor.
+                // The drag already ended: the panel neither follows the
+                // cursor nor hides on leaving the edge — the drag is over, so
+                // UI dismissal (auto-hide, click-outside, Escape, selection)
+                // governs it from here.
                 return .none
             }
-            // Dismissal-prevention latch: once the panel is up we never
-            // re-arm or cancel, regardless of whether the pointer is still at
-            // the edge. Each move simply makes the panel follow the cursor.
-            return .movePanel(to: point)
+            if atEdge {
+                // Still within the edge band: the panel follows the cursor.
+                return .movePanel(to: point)
+            }
+            // Left the edge band mid-drag: the user is pulling away, so hide
+            // the panel and drop back to plain dragging (NOT idle). The drag
+            // stays live, so re-approaching an edge and dwelling re-triggers
+            // the panel within the same drag.
+            state = .dragging
+            return .hidePanel
         }
     }
 
@@ -209,8 +225,13 @@ public struct EdgeTriggerPolicy: Equatable, Sendable {
     }
 
     private mutating func handlePanelDismissed() -> Effect {
-        // A dismissal only makes sense while the panel is up; from any other
-        // state it is a no-op.
+        // A dismissal returns to idle only while the panel is up; from any
+        // other state (idle / dragging / atEdgeHolding) it is a no-op and
+        // leaves the state untouched. This is load-bearing for re-entrancy:
+        // when the policy emits `hidePanel` and transitions to `dragging`,
+        // the panel's own dismissal callback feeds `panelDismissed` straight
+        // back in while we are already in `dragging` — that MUST be a no-op
+        // so the live drag survives and a re-approach can re-arm.
         guard case .triggered = state else {
             return .none
         }
