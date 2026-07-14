@@ -170,14 +170,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // with the mac-conventional combo).
         panel.onOpenSettings = presentSettings
 
-        // macOS Sequoia ships its own edge-tiling (drag a window to a screen
-        // edge to tile) enabled by default, which fires at the same edges as
-        // Sutto's edge-trigger. Sutto cannot change that system setting, so it
-        // only detects it (reading `EnableTilingByEdgeDrag` from
-        // `com.apple.WindowManager`, fresh on every call) and surfaces
-        // non-blocking guidance: a status-menu warning that appears only while
-        // the OS setting is on, opening a dismissible how-to window. The
-        // edge-trigger itself stays enabled regardless.
+        // macOS Sequoia ships its own window-tiling gestures enabled by
+        // default — "Drag windows to screen edges to tile"
+        // (`EnableTilingByEdgeDrag`) and "Drag windows to menu bar to fill
+        // screen" (`EnableTopTilingByEdgeDrag`) — which react at the same
+        // window-drag as Sutto's edge-trigger, so both fire at once and
+        // interfere. Sutto cannot change those system settings, so it only
+        // detects them (reading both keys from `com.apple.WindowManager`,
+        // fresh on every call) and surfaces non-blocking guidance: a
+        // status-menu warning that appears only while a conflicting gesture is
+        // on, opening a dismissible how-to window that names the enabled
+        // toggles. The edge-trigger itself stays enabled regardless.
         let edgeTilingCoexistence = EdgeTilingCoexistenceUseCase(
             detector: WindowManagerEdgeTilingDetector()
         )
@@ -189,7 +192,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             edgeTiling: edgeTilingCoexistence,
             onTogglePanel: { togglePanel.toggle() },
             onOpenSettings: presentSettings,
-            onShowEdgeTilingGuidance: { edgeTilingGuidance.present() }
+            onShowEdgeTilingGuidance: {
+                edgeTilingGuidance.present(conflicts: edgeTilingCoexistence.currentConflicts())
+            }
         )
 
         // Re-check the OS edge-tiling setting whenever Sutto comes to the
