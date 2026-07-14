@@ -97,16 +97,12 @@ import Testing
         enum Call: Equatable {
             case show(PixelPoint)
             case move(PixelPoint)
-            case suppressDismissal
-            case allowDismissal
         }
 
         private(set) var calls: [Call] = []
 
         func show(at point: PixelPoint) { calls.append(.show(point)) }
         func move(to point: PixelPoint) { calls.append(.move(point)) }
-        func suppressDismissal() { calls.append(.suppressDismissal) }
-        func allowDismissal() { calls.append(.allowDismissal) }
     }
 
     // MARK: - Fixture
@@ -272,7 +268,7 @@ import Testing
 
     // MARK: - Dwell → show → follow
 
-    @Test func dwellElapsedShowsPanelAtCursorAndSuppressesDismissal() {
+    @Test func dwellElapsedShowsPanelAtCursor() {
         let h = makeHarness()
 
         h.drags.emit(.began(PixelPoint(x: 300, y: 300)))
@@ -280,9 +276,10 @@ import Testing
         h.drags.emit(.moved(PixelPoint(x: 5, y: 400)))  // at the left edge
         #expect(h.dwell.scheduleCount == 1)
 
-        // Dwell fires → panel shows at the last pointer, dismissal suppressed.
+        // Dwell fires → panel shows at the last pointer. No suppression: the
+        // panel then dismisses on its own terms (auto-hide / click-outside).
         h.dwell.fire()
-        #expect(h.panel.calls == [.show(PixelPoint(x: 5, y: 400)), .suppressDismissal])
+        #expect(h.panel.calls == [.show(PixelPoint(x: 5, y: 400))])
     }
 
     @Test func panelFollowsTheCursorWhileTriggeredAndDragging() {
@@ -314,7 +311,6 @@ import Testing
 
         // A new drag's moves no longer move the panel (follow stopped); the
         // panel is neither hidden nor re-shown by drag-ended itself.
-        #expect(!h.panel.calls.contains(.allowDismissal))
         h.drags.emit(.began(PixelPoint(x: 400, y: 400)))
         // window does not move this time
         h.drags.emit(.moved(PixelPoint(x: 30, y: 460)))
@@ -324,18 +320,20 @@ import Testing
 
     // MARK: - Dismissal
 
-    @Test func notifyPanelDismissedResetsCancelsTimerAndAllowsDismissal() {
+    @Test func notifyPanelDismissedResetsAndCancelsTimer() {
         let h = makeHarness()
 
         h.drags.emit(.began(PixelPoint(x: 300, y: 300)))
         moveWindow(h.windows, by: 50)
         h.drags.emit(.moved(PixelPoint(x: 5, y: 400)))
-        h.dwell.fire()  // panel shown, dismissal suppressed
-        #expect(h.panel.calls.contains(.suppressDismissal))
+        h.dwell.fire()  // panel shown
+        #expect(h.panel.calls == [.show(PixelPoint(x: 5, y: 400))])
 
         h.useCase.notifyPanelDismissed()
 
-        #expect(h.panel.calls.last == .allowDismissal)
+        // Dismissal drives no panel calls (no suppression API); it only
+        // cancels the pending timer and returns the policy to idle.
+        #expect(h.panel.calls == [.show(PixelPoint(x: 5, y: 400))])
         #expect(h.dwell.cancelCount >= 1)
 
         // Back to idle: a fresh confirmed window move must go through the full
