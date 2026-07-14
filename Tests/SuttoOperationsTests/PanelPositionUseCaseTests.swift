@@ -106,4 +106,41 @@ private let primary = Screen(
         )
         #expect(useCase.panelFrame(width: 400, height: 200) == nil)
     }
+
+    /// The anchored (edge-trigger) path centers on the given point when it
+    /// sits comfortably inside the work area — no captured window needed,
+    /// so it resolves even with none. Anchor (960, 540) with a 400x200
+    /// panel centers at (760, 440).
+    @Test func centersTheAnchoredPanelOnTheGivenPoint() {
+        let useCase = PanelPositionUseCase(
+            session: makeSession(focusedFrame: nil),
+            screens: ScreenProviderStub(screens: [primary])
+        )
+        let frame = useCase.panelFrame(
+            width: 400, height: 200, anchoredAt: PixelPoint(x: 960, y: 540))
+        #expect(frame == PixelRect(x: 760, y: 440, width: 400, height: 200))
+    }
+
+    /// An anchor near the bottom-left corner clamps into the work area by
+    /// the resolver's 10 px padding: anchor (5, 5) centers a 400x200 panel
+    /// at (−195, −95), clamped to the padding origin (10, 10).
+    @Test func clampsTheAnchoredPanelWhenNearAnEdge() {
+        let useCase = PanelPositionUseCase(
+            session: makeSession(focusedFrame: nil),
+            screens: ScreenProviderStub(screens: [primary])
+        )
+        let frame = useCase.panelFrame(
+            width: 400, height: 200, anchoredAt: PixelPoint(x: 5, y: 5))
+        #expect(frame == PixelRect(x: 10, y: 10, width: 400, height: 200))
+    }
+
+    @Test func anchoredPathReturnsNilWithoutScreens() {
+        let useCase = PanelPositionUseCase(
+            session: makeSession(focusedFrame: nil),
+            screens: ScreenProviderStub(screens: [])
+        )
+        #expect(
+            useCase.panelFrame(
+                width: 400, height: 200, anchoredAt: PixelPoint(x: 960, y: 540)) == nil)
+    }
 }

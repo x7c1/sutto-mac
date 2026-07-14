@@ -85,6 +85,16 @@ public final class LayoutPanel {
     /// monitor that is never removed keeps firing — and leaks).
     private var mouseMonitors: [Any] = []
 
+    /// Whether automatic dismissal is currently suppressed. The v0.4
+    /// edge-trigger session holds this while a drag-triggered panel is up:
+    /// the panel opens at the cursor and follows it, and neither the
+    /// auto-hide timer nor the click-outside monitors may close it until
+    /// the drag ends / a layout is selected (the caller releases it via
+    /// ``allowDismissal()``). The shortcut path never sets it, so its
+    /// dismissal behaviour is unchanged. Reset on every ``hide()`` so a
+    /// subsequent shortcut-path ``show()`` always starts dismissible.
+    private var dismissalSuppressed = false
+
     public init(
         model: ActivePanelModelUseCase,
         selection: LayoutSelectionUseCase,
@@ -110,6 +120,28 @@ public final class LayoutPanel {
     /// containing the mouse pointer (then the main screen). The panel gets
     /// key status so Escape works; showing does not activate the app.
     public func show() {
+        show(anchor: nil)
+    }
+
+    /// Shows the panel centered on `point` (an AppKit global coordinate,
+    /// bottom-left origin), clamped back inside that point's screen work
+    /// area by the same 10 px inset the shortcut path uses — the v0.4
+    /// edge-trigger path, which opens the panel at the cursor. Otherwise
+    /// behaves exactly like ``show()``: it captures the frontmost window
+    /// (the one the drag is targeting), renders, installs the mouse
+    /// monitors, and takes key status without activating the app.
+    ///
+    /// It does not itself suppress dismissal; the edge-trigger session
+    /// pairs this with ``suppressDismissal()`` so the panel stays up while
+    /// the drag continues.
+    public func show(at point: PixelPoint) {
+        show(anchor: point)
+    }
+
+    /// The shared show path. `anchor == nil` is the shortcut path (centered
+    /// over the captured window); a non-nil anchor is the edge-trigger path
+    /// (centered on that point). Everything else is identical.
+    private func show(anchor: PixelPoint?) {
         // Capture the target window once, up front — before the panel is
         // rendered, positioned, or made key. The panel is not on screen
         // yet, so it can never capture itself; the same captured window is
@@ -125,7 +157,7 @@ public final class LayoutPanel {
         renderContentIfNeeded(in: panel)
 
         let size = panel.frame.size
-        if let frame = position.panelFrame(width: size.width, height: size.height) {
+        if let frame = resolveFrame(anchor: anchor, size: size) {
             panel.setFrameOrigin(NSPoint(x: frame.x, y: frame.y))
         } else if let screen = NSScreen.withMouse() {
             let visible = screen.visibleFrame
@@ -151,6 +183,49 @@ public final class LayoutPanel {
         panel.makeKeyAndOrderFront(nil)
     }
 
+    /// Repositions the already-visible panel so it is centered on `point`
+    /// (AppKit global coordinate), clamped into that point's work area —
+    /// the follow-the-cursor step the edge-trigger session calls
+    /// repeatedly while the drag continues. It only moves the window: no
+    /// re-render, no re-capture, and no monitor churn, so it is cheap
+    /// enough to run on every drag update. A no-op when the panel is not on
+    /// screen.
+    public func move(to point: PixelPoint) {
+        guard let panel, panel.isVisible else { return }
+        let size = panel.frame.size
+        if let frame = resolveFrame(anchor: point, size: size) {
+            panel.setFrameOrigin(NSPoint(x: frame.x, y: frame.y))
+        }
+    }
+
+    /// Resolves the panel origin for a show/move. A non-nil anchor uses the
+    /// point-anchored resolution; `nil` uses the captured-window center.
+    /// Returns `nil` when the use case cannot resolve (no captured window
+    /// on the shortcut path, or no screens), signalling the mouse-screen
+    /// fallback.
+    private func resolveFrame(anchor: PixelPoint?, size: NSSize) -> PixelRect? {
+        if let anchor {
+            return position.panelFrame(
+                width: size.width, height: size.height, anchoredAt: anchor)
+        }
+        return position.panelFrame(width: size.width, height: size.height)
+    }
+
+    /// Suppresses automatic dismissal until ``allowDismissal()``: while
+    /// suppressed the auto-hide timer and the click-outside monitors leave
+    /// the panel open. The edge-trigger session holds this for the duration
+    /// of a drag-triggered opening. Explicit ``hide()`` (Escape, the
+    /// settings gear) and layout selection are unaffected.
+    public func suppressDismissal() {
+        dismissalSuppressed = true
+    }
+
+    /// Resumes normal automatic dismissal after ``suppressDismissal()`` —
+    /// called when the drag ends or a layout is selected.
+    public func allowDismissal() {
+        dismissalSuppressed = false
+    }
+
     /// Hides the panel. Keyboard focus returns to wherever it was, and the
     /// panel's own navigation focus is dropped so the next show starts
     /// unfocused again. Any pending auto-hide is cancelled and the mouse
@@ -160,6 +235,9 @@ public final class LayoutPanel {
         removeMouseMonitors()
         clearFocus()
         panel?.orderOut(nil)
+        // A fresh opening starts dismissible; the edge-trigger session
+        // re-suppresses if it needs to.
+        dismissalSuppressed = false
     }
 
     // MARK: - Panel construction
@@ -438,6 +516,9 @@ public final class LayoutPanel {
 
     private func autoHideTimerFired() {
         autoHideTimer = nil
+        // Suppressed while an edge-trigger drag session holds the panel
+        // open — the timer must not close it.
+        guard !dismissalSuppressed else { return }
         // The policy double-checks the hover state (as GNOME does when its
         // timeout fires), so a stale timer cannot hide a hovered panel.
         if autoHide.shouldHideWhenHideTimerFires {
@@ -465,8 +546,9 @@ public final class LayoutPanel {
             // Global monitor callbacks arrive on the main thread; the
             // handler parameter is just not statically isolated.
             MainActor.assumeIsolated {
+                guard let self, !self.dismissalSuppressed else { return }
                 // Any click another app receives is outside the panel.
-                self?.hide()
+                self.hide()
             }
         }) {
             mouseMonitors.append(global)
@@ -477,8 +559,9 @@ public final class LayoutPanel {
                 // Clicks on the panel itself (its regions, its padding)
                 // must not close it; clicks on any other Sutto window are
                 // outside. The event passes through unchanged either way —
-                // observing, not swallowing.
-                if let self, event.window !== self.panel {
+                // observing, not swallowing. Suppressed during an
+                // edge-trigger drag session.
+                if let self, !self.dismissalSuppressed, event.window !== self.panel {
                     self.hide()
                 }
             }
