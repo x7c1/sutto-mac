@@ -33,19 +33,16 @@ private func makeSession(focusedFrame: PixelRect?) -> PanelTargetSession {
     return session
 }
 
-/// A `ScreenProviding` stub with a scriptable arrangement and mouse.
+/// A `ScreenProviding` stub with a scriptable arrangement.
 @MainActor
 private final class ScreenProviderStub: ScreenProviding {
     var currentScreens: [Screen]
-    var mouse: PixelPoint
 
-    init(screens: [Screen], mouse: PixelPoint = PixelPoint(x: 100, y: 100)) {
+    init(screens: [Screen]) {
         currentScreens = screens
-        self.mouse = mouse
     }
 
     func screens() -> [Screen] { currentScreens }
-    func mouseLocation() -> PixelPoint { mouse }
 }
 
 /// The fixture: a primary 1920x1080 screen whose work area is 1920x1055
@@ -105,5 +102,89 @@ private let primary = Screen(
             screens: ScreenProviderStub(screens: [])
         )
         #expect(useCase.panelFrame(width: 400, height: 200) == nil)
+    }
+
+    /// The anchored (edge-trigger) path hangs the panel below the cursor —
+    /// centered on the cursor's x, its top edge at the cursor's y — when the
+    /// cursor sits comfortably inside the work area. No captured window
+    /// needed, so it resolves even with none. Anchor (960, 540) with a
+    /// 400x200 panel: x = 960 − 200 = 760, and the top edge sits at 540 so
+    /// the origin is 540 − 200 = 340.
+    @Test func anchorsTheEdgeTriggerPanelTopEdgeAtTheCursor() {
+        let useCase = PanelPositionUseCase(
+            session: makeSession(focusedFrame: nil),
+            screens: ScreenProviderStub(screens: [primary])
+        )
+        let frame = useCase.panelFrame(
+            width: 400, height: 200, anchoredAt: PixelPoint(x: 960, y: 540))
+        #expect(frame == PixelRect(x: 760, y: 340, width: 400, height: 200))
+        // The top edge (origin.y + height) lands exactly on the cursor.
+        #expect(frame!.y + frame!.height == 540)
+    }
+
+    /// A cursor near the top of the work area: hanging the panel below would
+    /// run it off the bottom padding, so the top-edge clamp wins and the
+    /// panel's top edge is pushed down to the padding inset. Anchor
+    /// (960, 1050): raw top-anchored origin 1050 − 200 = 850 clamps to the
+    /// work-area top origin 1055 − 10 − 200 = 845; x stays centered at 760.
+    @Test func clampsTheEdgeTriggerPanelAtTheTopEdge() {
+        let useCase = PanelPositionUseCase(
+            session: makeSession(focusedFrame: nil),
+            screens: ScreenProviderStub(screens: [primary])
+        )
+        let frame = useCase.panelFrame(
+            width: 400, height: 200, anchoredAt: PixelPoint(x: 960, y: 1050))
+        #expect(frame == PixelRect(x: 760, y: 845, width: 400, height: 200))
+    }
+
+    /// A cursor near the bottom edge: the top-anchored origin goes negative
+    /// and clamps to the padding inset. Anchor (960, 5): raw origin
+    /// 5 − 200 = −195 clamps to y = 10; x stays centered at 760.
+    @Test func clampsTheEdgeTriggerPanelAtTheBottomEdge() {
+        let useCase = PanelPositionUseCase(
+            session: makeSession(focusedFrame: nil),
+            screens: ScreenProviderStub(screens: [primary])
+        )
+        let frame = useCase.panelFrame(
+            width: 400, height: 200, anchoredAt: PixelPoint(x: 960, y: 5))
+        #expect(frame == PixelRect(x: 760, y: 10, width: 400, height: 200))
+    }
+
+    /// A cursor near the left edge clamps horizontally to the padding while
+    /// keeping the top edge at the cursor, landing the cursor at the panel's
+    /// top-left corner. Anchor (5, 540): x = 5 − 200 = −195 clamps to 10;
+    /// y = 540 − 200 = 340 (unclamped).
+    @Test func clampsTheEdgeTriggerPanelAtTheLeftEdge() {
+        let useCase = PanelPositionUseCase(
+            session: makeSession(focusedFrame: nil),
+            screens: ScreenProviderStub(screens: [primary])
+        )
+        let frame = useCase.panelFrame(
+            width: 400, height: 200, anchoredAt: PixelPoint(x: 5, y: 540))
+        #expect(frame == PixelRect(x: 10, y: 340, width: 400, height: 200))
+    }
+
+    /// A cursor near the right edge clamps horizontally to the right-edge
+    /// origin, landing the cursor at the panel's top-right corner. Anchor
+    /// (1915, 540): x = 1915 − 200 = 1715 clamps to 1920 − 10 − 400 = 1510;
+    /// y = 340 (unclamped).
+    @Test func clampsTheEdgeTriggerPanelAtTheRightEdge() {
+        let useCase = PanelPositionUseCase(
+            session: makeSession(focusedFrame: nil),
+            screens: ScreenProviderStub(screens: [primary])
+        )
+        let frame = useCase.panelFrame(
+            width: 400, height: 200, anchoredAt: PixelPoint(x: 1915, y: 540))
+        #expect(frame == PixelRect(x: 1510, y: 340, width: 400, height: 200))
+    }
+
+    @Test func anchoredPathReturnsNilWithoutScreens() {
+        let useCase = PanelPositionUseCase(
+            session: makeSession(focusedFrame: nil),
+            screens: ScreenProviderStub(screens: [])
+        )
+        #expect(
+            useCase.panelFrame(
+                width: 400, height: 200, anchoredAt: PixelPoint(x: 960, y: 540)) == nil)
     }
 }

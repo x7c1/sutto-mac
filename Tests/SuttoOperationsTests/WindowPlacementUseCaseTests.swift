@@ -52,19 +52,16 @@ private final class WindowControllerStub: WindowControlling {
     }
 }
 
-/// A `ScreenProviding` stub with a scriptable arrangement and mouse.
+/// A `ScreenProviding` stub with a scriptable arrangement.
 @MainActor
 private final class ScreenProviderStub: ScreenProviding {
     var currentScreens: [Screen]
-    var mouse: PixelPoint
 
-    init(screens: [Screen], mouse: PixelPoint = PixelPoint(x: 100, y: 100)) {
+    init(screens: [Screen]) {
         currentScreens = screens
-        self.mouse = mouse
     }
 
     func screens() -> [Screen] { currentScreens }
-    func mouseLocation() -> PixelPoint { mouse }
 }
 
 private let leftHalf = Layout(
@@ -98,11 +95,10 @@ private let windowOnPrimary = PixelRect(x: 200, y: 200, width: 800, height: 600)
     private func makeUseCase(
         permission: AccessibilityAuthorization = .granted,
         windowFrame: PixelRect? = windowOnPrimary,
-        screens: [Screen] = makeScreens(),
-        mouse: PixelPoint = PixelPoint(x: 100, y: 100)
+        screens: [Screen] = makeScreens()
     ) -> (WindowPlacementUseCase, WindowControllerStub) {
         let (useCase, windows, _) = makeUseCaseAndSession(
-            permission: permission, windowFrame: windowFrame, screens: screens, mouse: mouse)
+            permission: permission, windowFrame: windowFrame, screens: screens)
         return (useCase, windows)
     }
 
@@ -111,8 +107,7 @@ private let windowOnPrimary = PixelRect(x: 200, y: 200, width: 800, height: 600)
     private func makeUseCaseAndSession(
         permission: AccessibilityAuthorization = .granted,
         windowFrame: PixelRect? = windowOnPrimary,
-        screens: [Screen] = makeScreens(),
-        mouse: PixelPoint = PixelPoint(x: 100, y: 100)
+        screens: [Screen] = makeScreens()
     ) -> (WindowPlacementUseCase, WindowControllerStub, PanelTargetSession) {
         let windows = WindowControllerStub(focusedFrame: windowFrame)
         let session = PanelTargetSession(windows: windows)
@@ -120,7 +115,7 @@ private let windowOnPrimary = PixelRect(x: 200, y: 200, width: 800, height: 600)
         let useCase = WindowPlacementUseCase(
             permission: PermissionCheckerStub(status: permission),
             session: session,
-            screens: ScreenProviderStub(screens: screens, mouse: mouse)
+            screens: ScreenProviderStub(screens: screens)
         )
         return (useCase, windows, session)
     }
@@ -148,12 +143,12 @@ private let windowOnPrimary = PixelRect(x: 200, y: 200, width: 800, height: 600)
         #expect(windows.appliedFrames == [PixelRect(x: 1920, y: 205, width: 800, height: 875)])
     }
 
-    @Test func fallsBackToTheMouseScreenForAnOffScreenWindowCenter() {
-        // AX (10000, 10000, 100, 100) has its center on no screen; the
-        // mouse at AppKit (2400, 480) is on the secondary.
+    @Test func fallsBackToTheNearestScreenForAnOffScreenWindowCenter() {
+        // AX (10000, 10000, 100, 100) has its center on no screen; in AppKit
+        // it lands far to the lower-right, nearest the secondary — so the
+        // window resolves onto the secondary, never blindly onto the primary.
         let (useCase, windows) = makeUseCase(
-            windowFrame: PixelRect(x: 10000, y: 10000, width: 100, height: 100),
-            mouse: PixelPoint(x: 2400, y: 480)
+            windowFrame: PixelRect(x: 10000, y: 10000, width: 100, height: 100)
         )
 
         useCase.place(leftHalf)
@@ -161,10 +156,11 @@ private let windowOnPrimary = PixelRect(x: 200, y: 200, width: 800, height: 600)
         #expect(windows.appliedFrames == [PixelRect(x: 1920, y: 205, width: 800, height: 875)])
     }
 
-    @Test func fallsBackToThePrimaryWhenWindowAndMouseAreOffScreen() {
+    @Test func fallsBackToTheNearestScreenWhenTheCenterIsFarLeft() {
+        // AX (-5000, 300, 100, 100) → AppKit center (-4950, 730), off every
+        // screen but nearest the primary, so the window resolves onto it.
         let (useCase, windows) = makeUseCase(
-            windowFrame: PixelRect(x: 10000, y: 10000, width: 100, height: 100),
-            mouse: PixelPoint(x: 99999, y: 99999)
+            windowFrame: PixelRect(x: -5000, y: 300, width: 100, height: 100)
         )
 
         useCase.place(leftHalf)

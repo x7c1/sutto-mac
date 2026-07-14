@@ -6,31 +6,58 @@ import SuttoOperations
 public final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let permission: AccessibilityPermissionUseCase
+    private let edgeTiling: EdgeTilingCoexistenceUseCase
     private let permissionStatusMenuItem: NSMenuItem
+    private let edgeTilingWarningItem: NSMenuItem
+    private let edgeTilingWarningSeparator: NSMenuItem
     private let onTogglePanel: () -> Void
     private let onOpenSettings: () -> Void
+    private let onShowEdgeTilingGuidance: () -> Void
 
     public init(
         permission: AccessibilityPermissionUseCase,
+        edgeTiling: EdgeTilingCoexistenceUseCase,
         onTogglePanel: @escaping () -> Void,
-        onOpenSettings: @escaping () -> Void
+        onOpenSettings: @escaping () -> Void,
+        onShowEdgeTilingGuidance: @escaping () -> Void
     ) {
         self.permission = permission
+        self.edgeTiling = edgeTiling
         self.onTogglePanel = onTogglePanel
         self.onOpenSettings = onOpenSettings
+        self.onShowEdgeTilingGuidance = onShowEdgeTilingGuidance
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         permissionStatusMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        edgeTilingWarningItem = NSMenuItem(
+            title: "⚠︎ macOS window tiling is on — fix…",
+            action: nil,
+            keyEquivalent: ""
+        )
+        edgeTilingWarningSeparator = .separator()
         super.init()
 
         configureButton()
         statusItem.menu = makeMenu()
         refreshPermissionStatus()
+        refreshEdgeTilingWarning()
     }
 
     // MARK: - NSMenuDelegate
 
     public func menuWillOpen(_ menu: NSMenu) {
         refreshPermissionStatus()
+        refreshEdgeTilingWarning()
+    }
+
+    // MARK: - Public
+
+    /// Re-evaluates the macOS edge-tiling warning so it clears (or appears)
+    /// without a relaunch. The app calls this on foreground; `menuWillOpen`
+    /// covers the menu being opened directly.
+    public func refreshEdgeTilingWarning() {
+        let shouldWarn = edgeTiling.shouldWarn()
+        edgeTilingWarningItem.isHidden = !shouldWarn
+        edgeTilingWarningSeparator.isHidden = !shouldWarn
     }
 
     // MARK: - Actions
@@ -41,6 +68,10 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func openSettings() {
         onOpenSettings()
+    }
+
+    @objc private func showEdgeTilingGuidance() {
+        onShowEdgeTilingGuidance()
     }
 
     // MARK: - Private
@@ -61,6 +92,16 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     private func makeMenu() -> NSMenu {
         let menu = NSMenu()
         menu.delegate = self
+
+        // macOS's own edge-tiling collides with Sutto's edge-trigger. This
+        // warning item is present only while that OS setting is on (toggled
+        // by `refreshEdgeTilingWarning`); clicking it opens guidance on how
+        // to turn it off. Its dedicated separator is hidden alongside it so
+        // the menu has no dangling divider when the warning is absent.
+        edgeTilingWarningItem.target = self
+        edgeTilingWarningItem.action = #selector(showEdgeTilingGuidance)
+        menu.addItem(edgeTilingWarningItem)
+        menu.addItem(edgeTilingWarningSeparator)
 
         // Auto-enablement disables this item because it has no action,
         // which is what we want for a status-only row.

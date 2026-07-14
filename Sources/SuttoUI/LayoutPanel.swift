@@ -59,6 +59,15 @@ public final class LayoutPanel {
     /// deliberate deviation.
     public var onOpenSettings: (() -> Void)?
 
+    /// Called at the end of every ``hide()``, i.e. whenever the panel
+    /// actually leaves the screen — via Escape, auto-hide, a click outside,
+    /// or the settings gear. The v0.4 edge-trigger session wires this to
+    /// ``SuttoOperations/EdgeTriggerUseCase/notifyPanelDismissed()`` so the
+    /// policy returns to idle no matter which close path fires; routing it
+    /// through the single `hide()` funnel means no close path can be missed.
+    /// Safe to leave `nil` (the shortcut-only path does).
+    public var onDismiss: (() -> Void)?
+
     private let model: ActivePanelModelUseCase
     private let selection: LayoutSelectionUseCase
     private let position: PanelPositionUseCase
@@ -110,6 +119,31 @@ public final class LayoutPanel {
     /// containing the mouse pointer (then the main screen). The panel gets
     /// key status so Escape works; showing does not activate the app.
     public func show() {
+        show(anchor: nil)
+    }
+
+    /// Shows the panel with its top edge at `point` and centered on its x
+    /// (an AppKit global coordinate, bottom-left origin), so the panel hangs
+    /// below the cursor; it is clamped back inside that point's screen work
+    /// area by the same 10 px inset the shortcut path uses — the v0.4
+    /// edge-trigger path, which opens the panel at the cursor. Otherwise
+    /// behaves exactly like ``show()``: it captures the frontmost window
+    /// (the one the drag is targeting), renders, installs the mouse
+    /// monitors, and takes key status without activating the app.
+    ///
+    /// It shares the shortcut path's dismissal behaviour unchanged: the
+    /// panel auto-hides once the cursor leaves it and closes on a click
+    /// outside. During the drag the cursor follows the panel (so auto-hide
+    /// does not fire) and no mouse-down occurs mid-drag (so the click-outside
+    /// monitor stays quiet); after the drop, moving away lets it auto-hide.
+    public func show(at point: PixelPoint) {
+        show(anchor: point)
+    }
+
+    /// The shared show path. `anchor == nil` is the shortcut path (centered
+    /// over the captured window); a non-nil anchor is the edge-trigger path
+    /// (centered on that point). Everything else is identical.
+    private func show(anchor: PixelPoint?) {
         // Capture the target window once, up front — before the panel is
         // rendered, positioned, or made key. The panel is not on screen
         // yet, so it can never capture itself; the same captured window is
@@ -125,7 +159,7 @@ public final class LayoutPanel {
         renderContentIfNeeded(in: panel)
 
         let size = panel.frame.size
-        if let frame = position.panelFrame(width: size.width, height: size.height) {
+        if let frame = resolveFrame(anchor: anchor, size: size) {
             panel.setFrameOrigin(NSPoint(x: frame.x, y: frame.y))
         } else if let screen = NSScreen.withMouse() {
             let visible = screen.visibleFrame
@@ -151,6 +185,37 @@ public final class LayoutPanel {
         panel.makeKeyAndOrderFront(nil)
     }
 
+    /// Repositions the already-visible panel so its top edge sits at `point`
+    /// and it stays centered on `point`'s x (AppKit global coordinate),
+    /// clamped into that point's work area — the same top-anchored
+    /// resolution ``show(at:)`` uses, so the panel keeps its top edge under
+    /// the cursor while dragging. This is the follow-the-cursor step the
+    /// edge-trigger session calls
+    /// repeatedly while the drag continues. It only moves the window: no
+    /// re-render, no re-capture, and no monitor churn, so it is cheap
+    /// enough to run on every drag update. A no-op when the panel is not on
+    /// screen.
+    public func move(to point: PixelPoint) {
+        guard let panel, panel.isVisible else { return }
+        let size = panel.frame.size
+        if let frame = resolveFrame(anchor: point, size: size) {
+            panel.setFrameOrigin(NSPoint(x: frame.x, y: frame.y))
+        }
+    }
+
+    /// Resolves the panel origin for a show/move. A non-nil anchor uses the
+    /// point-anchored resolution; `nil` uses the captured-window center.
+    /// Returns `nil` when the use case cannot resolve (no captured window
+    /// on the shortcut path, or no screens), signalling the mouse-screen
+    /// fallback.
+    private func resolveFrame(anchor: PixelPoint?, size: NSSize) -> PixelRect? {
+        if let anchor {
+            return position.panelFrame(
+                width: size.width, height: size.height, anchoredAt: anchor)
+        }
+        return position.panelFrame(width: size.width, height: size.height)
+    }
+
     /// Hides the panel. Keyboard focus returns to wherever it was, and the
     /// panel's own navigation focus is dropped so the next show starts
     /// unfocused again. Any pending auto-hide is cancelled and the mouse
@@ -160,6 +225,10 @@ public final class LayoutPanel {
         removeMouseMonitors()
         clearFocus()
         panel?.orderOut(nil)
+        // Every close path funnels through here, so this is the single point
+        // that tells the edge-trigger session the panel is gone. Fired last,
+        // after the panel is off screen and state is reset.
+        onDismiss?()
     }
 
     // MARK: - Panel construction
@@ -465,8 +534,9 @@ public final class LayoutPanel {
             // Global monitor callbacks arrive on the main thread; the
             // handler parameter is just not statically isolated.
             MainActor.assumeIsolated {
+                guard let self else { return }
                 // Any click another app receives is outside the panel.
-                self?.hide()
+                self.hide()
             }
         }) {
             mouseMonitors.append(global)
@@ -495,6 +565,14 @@ public final class LayoutPanel {
         mouseMonitors = []
     }
 }
+
+/// The edge-trigger session drives the panel through this Operations-layer
+/// surface. `LayoutPanel` already implements both operations with matching
+/// signatures — `show(at:)` and `move(to:)` — so the conformance is a
+/// declaration only. Keeping it in the UI layer (which already depends on
+/// SuttoOperations) leaves the composition root to just hand the panel over
+/// as an `any EdgeTriggerPanel`.
+extension LayoutPanel: EdgeTriggerPanel {}
 
 /// The footer's settings gear: a template SF Symbol tinted with the
 /// footer text color, with the GNOME gear's hover fill (a faint rounded

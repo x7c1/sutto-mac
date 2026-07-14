@@ -15,11 +15,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
     private var statusItemController: StatusItemController?
     private var permissionOnboarding: PermissionOnboarding?
+    private var edgeTilingGuidance: EdgeTilingGuidance?
     private var layoutPanel: LayoutPanel?
     private var settingsWindow: SettingsWindowController?
     private var hotKeys: CarbonHotKeyRegistrar?
     private var panelShortcut: PanelShortcutUseCase?
     private var screenObserver: ScreenParametersObserver?
+    private var edgeTrigger: EdgeTriggerUseCase?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // LSUIElement in Info.plist already keeps the app out of the Dock;
@@ -168,11 +170,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // with the mac-conventional combo).
         panel.onOpenSettings = presentSettings
 
+        // macOS Sequoia ships its own window-tiling gestures enabled by
+        // default — "Drag windows to screen edges to tile"
+        // (`EnableTilingByEdgeDrag`) and "Drag windows to menu bar to fill
+        // screen" (`EnableTopTilingByEdgeDrag`) — which react at the same
+        // window-drag as Sutto's edge-trigger, so both fire at once and
+        // interfere. Sutto cannot change those system settings, so it only
+        // detects them (reading both keys from `com.apple.WindowManager`,
+        // fresh on every call) and surfaces non-blocking guidance: a
+        // status-menu warning that appears only while a conflicting gesture is
+        // on, opening a dismissible how-to window that names the enabled
+        // toggles. The edge-trigger itself stays enabled regardless.
+        let edgeTilingCoexistence = EdgeTilingCoexistenceUseCase(
+            detector: WindowManagerEdgeTilingDetector()
+        )
+        let edgeTilingGuidance = EdgeTilingGuidance()
+        self.edgeTilingGuidance = edgeTilingGuidance
+
         statusItemController = StatusItemController(
             permission: permission,
+            edgeTiling: edgeTilingCoexistence,
             onTogglePanel: { togglePanel.toggle() },
-            onOpenSettings: presentSettings
+            onOpenSettings: presentSettings,
+            onShowEdgeTilingGuidance: {
+                edgeTilingGuidance.present(conflicts: edgeTilingCoexistence.currentConflicts())
+            }
         )
+
+        // Re-check the OS edge-tiling setting whenever Sutto comes to the
+        // foreground, so the warning clears (or reappears) after the user
+        // toggles it in System Settings — no relaunch needed. The read is a
+        // single cheap prefs lookup. The menu's own `menuWillOpen` covers the
+        // case of opening the menu directly.
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.statusItemController?.refreshEdgeTilingWarning()
+            }
+        }
 
         // Monitor hot-plug (and arrangement/resolution changes): re-detect
         // the environment — restoring that setup's collection — make sure
@@ -187,6 +225,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             settings?.refreshIfVisible()
         }
+
+        // Edge-drag trigger (v0.4): dragging a window to a screen edge and
+        // dwelling there opens the layout panel at the cursor, which then
+        // follows the drag. It ships enabled by default — there is no
+        // preference toggle yet (that, and macOS-tiling coexistence, land in a
+        // later sub-PR). The drag stream is a mouse-only global NSEvent
+        // monitor (no extra permission); window-move discrimination reads
+        // window frames over AX, which the app already holds. Starting before
+        // AX permission is granted is safe: frame reads return nil, so drags
+        // are simply ignored until permission lands. The three schedulers are
+        // separate instances — one for the dwell delay, one for the move
+        // throttle, one for the leave-edge grace — because each TimerScheduler
+        // owns exactly one timer.
+        let edgeTrigger = EdgeTriggerUseCase(
+            drags: NSEventGlobalDragMonitor(),
+            windows: windowController,
+            screens: screens,
+            panel: panel,
+            dwellTimer: TimerScheduler(),
+            throttle: TimerScheduler(),
+            hideTimer: TimerScheduler()
+        )
+        self.edgeTrigger = edgeTrigger
+        // Every panel close funnels through LayoutPanel.hide(); route that to
+        // the policy so it returns to idle whether the panel closed via Escape,
+        // auto-hide, a click outside, or the settings gear. Redundant calls
+        // (e.g. the shortcut path's own hide) are no-ops from idle.
+        panel.onDismiss = { [weak edgeTrigger] in
+            edgeTrigger?.notifyPanelDismissed()
+        }
+        edgeTrigger.start()
 
         if permission.shouldPresentOnboarding() {
             let onboarding = PermissionOnboarding(permission: permission)

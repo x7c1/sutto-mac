@@ -17,4 +17,35 @@ public struct Screen: Equatable, Sendable {
         self.frame = frame
         self.visibleFrame = visibleFrame
     }
+
+    /// Selects the screen a point belongs to, robustly at every boundary.
+    ///
+    /// Two steps, in order:
+    ///
+    /// 1. The first screen whose frame ``PixelRect/contains(_:)`` the point.
+    ///    Containment is half-open, so a point on the shared edge of two
+    ///    adjacent screens (and every interior point) resolves to exactly
+    ///    one screen, deterministically — unchanged from before.
+    /// 2. Otherwise the screen whose frame is *nearest* to the point
+    ///    (minimum ``PixelRect/distance(to:)``). A point on a screen's outer
+    ///    edge — e.g. the exact top row (`y == frame.maxY`) of a non-primary
+    ///    screen, which the half-open containment excludes — is distance `0`
+    ///    from that screen and farther from any other, so it resolves to its
+    ///    own screen instead of blindly falling back to the primary.
+    ///
+    /// Selecting the nearest screen (rather than the primary) is what fixes
+    /// the multi-monitor top/right-edge bug: dragging a window to a
+    /// secondary screen's very top edge used to resolve to the primary
+    /// screen, because no screen's half-open frame *contained* that pixel.
+    ///
+    /// - Parameters:
+    ///   - point: The point to locate, in AppKit coordinates.
+    ///   - screens: The screens to choose from; the first is the primary.
+    /// - Returns: The chosen screen, or `nil` when `screens` is empty.
+    public static func containing(_ point: PixelPoint, in screens: [Screen]) -> Screen? {
+        if let exact = screens.first(where: { $0.frame.contains(point) }) {
+            return exact
+        }
+        return screens.min { $0.frame.distance(to: point) < $1.frame.distance(to: point) }
+    }
 }

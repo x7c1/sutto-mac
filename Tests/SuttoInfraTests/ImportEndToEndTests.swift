@@ -120,8 +120,4 @@ private struct SingleStandardScreenProvider: ScreenProviding {
             )
         ]
     }
-
-    func mouseLocation() -> PixelPoint {
-        PixelPoint(x: 0, y: 0)
-    }
 }

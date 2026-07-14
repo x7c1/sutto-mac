@@ -54,4 +54,20 @@ public struct PixelRect: Equatable, Sendable {
     public func contains(_ point: PixelPoint) -> Bool {
         point.x >= x && point.x < maxX && point.y >= y && point.y < maxY
     }
+
+    /// The Euclidean distance from `point` to the nearest part of the
+    /// rectangle.
+    ///
+    /// `0` when the point is inside *or on the boundary* (unlike the
+    /// half-open ``contains(_:)``, which excludes the `maxX`/`maxY` edges):
+    /// a point sitting exactly on an outer edge is distance `0` from that
+    /// rectangle, which is what lets screen selection resolve such a point
+    /// to its own screen rather than a farther one. Otherwise it is the
+    /// length of the shortest segment from the point to the rectangle,
+    /// using the standard clamped per-axis deltas.
+    public func distance(to point: PixelPoint) -> Double {
+        let dx = max(x - point.x, 0, point.x - maxX)
+        let dy = max(y - point.y, 0, point.y - maxY)
+        return (dx * dx + dy * dy).squareRoot()
+    }
 }

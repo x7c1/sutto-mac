@@ -13,9 +13,9 @@ import os
 ///
 /// - ``place(_:)`` — the window's *own* screen: read the captured window's
 ///   frame → pick its screen (the one containing the window's center;
-///   ``SuttoDomain/PlacementFrameResolver`` falls back to the mouse's
-///   screen, then the primary, when the center is off-screen) → resolve
-///   the layout against that screen's work area.
+///   ``SuttoDomain/PlacementFrameResolver`` falls back to the nearest
+///   screen when the center is off-screen) → resolve the layout against
+///   that screen's work area.
 /// - ``place(_:onDisplayKey:)`` — an explicitly *chosen* screen: the panel
 ///   passes the display key of the miniature the user clicked, and the
 ///   window lands on that screen no matter where it currently is. This is
@@ -56,8 +56,7 @@ public final class WindowPlacementUseCase {
             try PlacementFrameResolver.resolve(
                 layout: layout,
                 windowFrame: context.windowFrame,
-                screens: context.screens,
-                mouseLocation: screens.mouseLocation()
+                screens: context.screens
             )
         }
     }
