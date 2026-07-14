@@ -63,12 +63,24 @@ public final class EdgeTriggerUseCase {
     /// window because macOS pushes drag events rather than being polled.
     public static let throttleInterval: Duration = .milliseconds(50)
 
+    /// The grace the pointer has to return to the edge after leaving it
+    /// mid-drag before the panel is hidden. A brief dip off the edge should
+    /// not flick the panel away, so leaving the band starts this timer instead
+    /// of hiding at once; re-entering the edge cancels it. It deliberately
+    /// reuses the panel's own auto-hide grace
+    /// (``SuttoDomain/PanelAutoHidePolicy/autoHideDelay``, 500 ms) so a
+    /// leave-edge dismissal feels the same as the panel's other dismissals.
+    /// The pure policy is clock-free, so — like the dwell — this duration
+    /// lives here with the timer that enforces it.
+    public static let leaveGraceInterval: Duration = .seconds(PanelAutoHidePolicy.autoHideDelay)
+
     private let drags: any DragObserving
     private let windows: any WindowControlling
     private let screens: any ScreenProviding
     private let panel: any EdgeTriggerPanel
     private let dwellTimer: any Scheduling
     private let throttle: any Scheduling
+    private let hideTimer: any Scheduling
     private var policy: EdgeTriggerPolicy
     private let logger = Logger(
         subsystem: "io.github.x7c1.SuttoMac", category: "edge-trigger")
@@ -105,6 +117,7 @@ public final class EdgeTriggerUseCase {
         panel: any EdgeTriggerPanel,
         dwellTimer: any Scheduling,
         throttle: any Scheduling,
+        hideTimer: any Scheduling,
         policy: EdgeTriggerPolicy = EdgeTriggerPolicy()
     ) {
         self.drags = drags
@@ -113,6 +126,7 @@ public final class EdgeTriggerUseCase {
         self.panel = panel
         self.dwellTimer = dwellTimer
         self.throttle = throttle
+        self.hideTimer = hideTimer
         self.policy = policy
     }
 
@@ -131,6 +145,7 @@ public final class EdgeTriggerUseCase {
         drags.stop()
         dwellTimer.cancel()
         throttle.cancel()
+        hideTimer.cancel()
         resetThrottle()
         resetDragTracking()
     }
@@ -152,6 +167,7 @@ public final class EdgeTriggerUseCase {
         guard policy.state == .idle else { return }
         dwellTimer.cancel()
         throttle.cancel()
+        hideTimer.cancel()
         resetThrottle()
         resetDragTracking()
     }
@@ -273,6 +289,16 @@ public final class EdgeTriggerUseCase {
             }
         case .cancelDwellTimer:
             dwellTimer.cancel()
+        case .armHideTimer:
+            // The pointer left the edge band mid-drag: start the grace timer
+            // instead of hiding at once. If it elapses, feed back
+            // `hideTimerElapsed`; if the pointer returns to the edge first the
+            // policy emits `cancelHideTimer`.
+            hideTimer.schedule(after: Self.leaveGraceInterval) { [weak self] in
+                self?.onHideTimerElapsed()
+            }
+        case .cancelHideTimer:
+            hideTimer.cancel()
         case let .showPanel(point):
             // The panel then dismisses on its own terms (auto-hide once the
             // cursor leaves it, or a click outside) — no suppression needed.
@@ -280,18 +306,22 @@ public final class EdgeTriggerUseCase {
         case let .movePanel(point):
             panel.move(to: point)
         case .hidePanel:
-            // The drag left the edge band: hide the panel. `hide()` fires the
-            // panel's `onDismiss`, which routes back through
-            // `notifyPanelDismissed()` synchronously — a no-op on the policy
-            // here (it is already in `dragging`), so the live drag survives.
-            // Deliberately no per-drag reset: the drag is still ongoing and a
-            // re-approach must re-arm.
+            // The leave-edge grace elapsed with the pointer still off the
+            // edge: hide the panel. `hide()` fires the panel's `onDismiss`,
+            // which routes back through `notifyPanelDismissed()` synchronously
+            // — a no-op on the policy here (it is already in `dragging`), so
+            // the live drag survives. Deliberately no per-drag reset: the drag
+            // is still ongoing and a re-approach must re-arm.
             panel.hide()
         }
     }
 
     private func onDwellElapsed() {
         apply(policy.handle(.dwellElapsed))
+    }
+
+    private func onHideTimerElapsed() {
+        apply(policy.handle(.hideTimerElapsed))
     }
 
     // MARK: - Helpers

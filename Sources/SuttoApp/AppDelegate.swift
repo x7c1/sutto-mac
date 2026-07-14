@@ -197,16 +197,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // monitor (no extra permission); window-move discrimination reads
         // window frames over AX, which the app already holds. Starting before
         // AX permission is granted is safe: frame reads return nil, so drags
-        // are simply ignored until permission lands. The two schedulers are
+        // are simply ignored until permission lands. The three schedulers are
         // separate instances — one for the dwell delay, one for the move
-        // throttle — because each TimerScheduler owns exactly one timer.
+        // throttle, one for the leave-edge grace — because each TimerScheduler
+        // owns exactly one timer.
         let edgeTrigger = EdgeTriggerUseCase(
             drags: NSEventGlobalDragMonitor(),
             windows: windowController,
             screens: screens,
             panel: panel,
             dwellTimer: TimerScheduler(),
-            throttle: TimerScheduler()
+            throttle: TimerScheduler(),
+            hideTimer: TimerScheduler()
         )
         self.edgeTrigger = edgeTrigger
         // Every panel close funnels through LayoutPanel.hide(); route that to
