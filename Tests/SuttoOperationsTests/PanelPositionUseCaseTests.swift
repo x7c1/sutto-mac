@@ -3,17 +3,34 @@ import Testing
 
 @testable import SuttoOperations
 
-/// A `WindowControlling` stub with a scriptable focused-window frame.
+/// A `TargetWindow` stub the fake controller hands back on capture.
+private final class TargetWindowStub: TargetWindow {}
+
+/// A `WindowControlling` stub whose capture yields a stub target with a
+/// scriptable frame (or no target at all).
 @MainActor
 private final class WindowControllerStub: WindowControlling {
     var focusedFrame: PixelRect?
+    private let target = TargetWindowStub()
 
     init(focusedFrame: PixelRect?) {
         self.focusedFrame = focusedFrame
     }
 
-    func focusedWindowFrame() -> PixelRect? { focusedFrame }
-    func applyFrame(_ frame: PixelRect) -> Bool { true }
+    func captureFocusedWindow() -> TargetWindow? {
+        focusedFrame == nil ? nil : target
+    }
+    func frame(of window: TargetWindow) -> PixelRect? { focusedFrame }
+    func applyFrame(_ frame: PixelRect, to window: TargetWindow) -> Bool { true }
+}
+
+/// Builds a session over a stub whose captured window has `focusedFrame`,
+/// capturing up front the way the panel does before it is shown.
+@MainActor
+private func makeSession(focusedFrame: PixelRect?) -> PanelTargetSession {
+    let session = PanelTargetSession(windows: WindowControllerStub(focusedFrame: focusedFrame))
+    session.capture()
+    return session
 }
 
 /// A `ScreenProviding` stub with a scriptable arrangement and mouse.
@@ -46,7 +63,7 @@ private let primary = Screen(
     /// is (600, 580) and a 400x200 panel centers at (400, 480).
     @Test func centersThePanelOverTheFocusedWindow() {
         let useCase = PanelPositionUseCase(
-            windows: WindowControllerStub(
+            session: makeSession(
                 focusedFrame: PixelRect(x: 200, y: 200, width: 800, height: 600)),
             screens: ScreenProviderStub(screens: [primary])
         )
@@ -59,7 +76,7 @@ private let primary = Screen(
     /// work area, not the raw centered position.
     @Test func clampsWhenTheWindowSitsAtTheScreenEdge() {
         let useCase = PanelPositionUseCase(
-            windows: WindowControllerStub(
+            session: makeSession(
                 focusedFrame: PixelRect(x: 0, y: 25, width: 300, height: 200)),
             screens: ScreenProviderStub(screens: [primary])
         )
@@ -75,7 +92,7 @@ private let primary = Screen(
     /// centering, so the use case reports nil rather than guessing.
     @Test func returnsNilWithoutAFocusedWindow() {
         let useCase = PanelPositionUseCase(
-            windows: WindowControllerStub(focusedFrame: nil),
+            session: makeSession(focusedFrame: nil),
             screens: ScreenProviderStub(screens: [primary])
         )
         #expect(useCase.panelFrame(width: 400, height: 200) == nil)
@@ -83,7 +100,7 @@ private let primary = Screen(
 
     @Test func returnsNilWithoutScreens() {
         let useCase = PanelPositionUseCase(
-            windows: WindowControllerStub(
+            session: makeSession(
                 focusedFrame: PixelRect(x: 200, y: 200, width: 800, height: 600)),
             screens: ScreenProviderStub(screens: [])
         )

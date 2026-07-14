@@ -36,16 +36,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let screens = SystemScreenProvider()
 
-        // Selecting a layout snaps the frontmost app's focused window. The
-        // layout panel is a non-activating NSPanel, so the app that was
-        // frontmost when the panel appeared is still frontmost when the
-        // button is clicked — placement targets that app's window. The
-        // same AX adapter also feeds the panel's positioning (the panel
-        // opens centered over that window).
+        // Selecting a layout snaps the window captured when the panel
+        // opened. The layout panel is a non-activating NSPanel, so the app
+        // frontmost when the panel appears stays frontmost — its focused
+        // window is what the capture (below) records, and the same window
+        // feeds both the panel's positioning and every layout applied.
         let windowController = AXWindowController()
+        // The one target window per panel opening: captured when the panel
+        // (or the settings window) opens and shared by positioning and
+        // placement, so both act on the same window and the panel can never
+        // move itself.
+        let targetSession = PanelTargetSession(windows: windowController)
         let placement = WindowPlacementUseCase(
             permission: AccessibilityPermissionChecker(),
-            windows: windowController,
+            session: targetSession,
             screens: screens
         )
         // Collections persist under Application Support, the active
@@ -97,10 +101,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         // Shared by the panel and the settings window so both open at the
-        // same anchor — centered over the frontmost app's focused window,
+        // same anchor — centered over the window captured for the opening,
         // clamped into that screen's work area.
         let panelPosition = PanelPositionUseCase(
-            windows: windowController,
+            session: targetSession,
             screens: screens
         )
 
@@ -118,7 +122,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         """)
                 placement.place(event.layout, onDisplayKey: event.displayKey)
             },
-            position: panelPosition
+            position: panelPosition,
+            session: targetSession
         )
         layoutPanel = panel
 
@@ -147,7 +152,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 )
             ),
             shortcut: registerGlobalShortcut(with: togglePanel, preferences: preferences),
-            position: panelPosition
+            position: panelPosition,
+            session: targetSession
         )
         settingsWindow = settings
 

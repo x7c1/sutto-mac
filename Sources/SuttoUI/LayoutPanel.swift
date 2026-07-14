@@ -62,6 +62,7 @@ public final class LayoutPanel {
     private let model: ActivePanelModelUseCase
     private let selection: LayoutSelectionUseCase
     private let position: PanelPositionUseCase
+    private let session: PanelTargetSession
     private var panel: OverlayPanel?
     private var renderedModel: MiniaturePanelModel?
 
@@ -87,11 +88,13 @@ public final class LayoutPanel {
     public init(
         model: ActivePanelModelUseCase,
         selection: LayoutSelectionUseCase,
-        position: PanelPositionUseCase
+        position: PanelPositionUseCase,
+        session: PanelTargetSession
     ) {
         self.model = model
         self.selection = selection
         self.position = position
+        self.session = session
     }
 
     /// Whether the panel is currently on screen.
@@ -99,15 +102,24 @@ public final class LayoutPanel {
         panel?.isVisible ?? false
     }
 
-    /// Shows the panel centered over the frontmost app's focused window,
+    /// Shows the panel centered over the window captured for this opening,
     /// pushed back inside that screen's work area when the window sits
     /// near an edge — the GNOME shortcut path (`showAtWindowCenter`).
-    /// Without a readable focused window (none exists, or the
-    /// Accessibility permission is missing) it falls back to centering on
-    /// the screen containing the mouse pointer (then the main screen).
-    /// The panel gets key status so Escape works; showing does not
-    /// activate the app.
+    /// Without a captured window (none was focused, or the Accessibility
+    /// permission is missing) it falls back to centering on the screen
+    /// containing the mouse pointer (then the main screen). The panel gets
+    /// key status so Escape works; showing does not activate the app.
     public func show() {
+        // Capture the target window once, up front — before the panel is
+        // rendered, positioned, or made key. The panel is not on screen
+        // yet, so it can never capture itself; the same captured window is
+        // then used both to anchor the panel (below) and by every layout
+        // applied during this opening (keyboard Enter and cross-monitor
+        // clicks included), which is what stops the panel from ever moving
+        // itself. Re-captured on every show(), so the toggle/re-open path
+        // re-targets whatever is frontmost now.
+        session.capture()
+
         let panel = self.panel ?? makePanel()
         self.panel = panel
         renderContentIfNeeded(in: panel)
