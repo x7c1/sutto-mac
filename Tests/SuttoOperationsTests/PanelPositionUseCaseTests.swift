@@ -33,19 +33,16 @@ private func makeSession(focusedFrame: PixelRect?) -> PanelTargetSession {
     return session
 }
 
-/// A `ScreenProviding` stub with a scriptable arrangement and mouse.
+/// A `ScreenProviding` stub with a scriptable arrangement.
 @MainActor
 private final class ScreenProviderStub: ScreenProviding {
     var currentScreens: [Screen]
-    var mouse: PixelPoint
 
-    init(screens: [Screen], mouse: PixelPoint = PixelPoint(x: 100, y: 100)) {
+    init(screens: [Screen]) {
         currentScreens = screens
-        self.mouse = mouse
     }
 
     func screens() -> [Screen] { currentScreens }
-    func mouseLocation() -> PixelPoint { mouse }
 }
 
 /// The fixture: a primary 1920x1080 screen whose work area is 1920x1055

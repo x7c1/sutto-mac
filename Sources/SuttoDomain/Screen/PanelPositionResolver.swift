@@ -26,10 +26,11 @@
 ///   visible at the padding inset.
 ///
 /// One deviation: when the anchor lies on no screen (GNOME falls back to
-/// clamping against the whole virtual screen), the screen containing the
-/// mouse pointer is used, then the primary — the same fallback chain as
-/// ``PlacementFrameResolver``, which is better defined for macOS
-/// arrangements with negative coordinates than a virtual-screen union.
+/// clamping against the whole virtual screen), the screen *nearest* to the
+/// anchor is used (``Screen/containing(_:in:)``), which is better defined
+/// for macOS arrangements with negative coordinates than a virtual-screen
+/// union — and, unlike a blind primary-screen fallback, keeps a point on a
+/// secondary screen's outer edge on that secondary screen.
 ///
 /// Everything is in AppKit coordinates (global bottom-left origin, y
 /// growing upward): the caller converts the AX window frame before taking
@@ -64,8 +65,6 @@ public enum PanelPositionResolver {
     ///     ``VerticalAnchor/center`` (the shortcut path).
     ///   - screens: The current screens in AppKit coordinates; the first
     ///     element is the primary screen, matching `NSScreen.screens`.
-    ///   - mouseLocation: The mouse pointer in AppKit coordinates, used as
-    ///     the fallback when the anchor is on no screen.
     /// - Returns: The panel's frame in AppKit coordinates, or `nil` when
     ///   `screens` is empty.
     public static func resolve(
@@ -73,15 +72,9 @@ public enum PanelPositionResolver {
         panelWidth: Double,
         panelHeight: Double,
         verticalAnchor: VerticalAnchor = .center,
-        screens: [Screen],
-        mouseLocation: PixelPoint
+        screens: [Screen]
     ) -> PixelRect? {
-        guard let primary = screens.first else { return nil }
-
-        let screen =
-            screens.first { $0.frame.contains(anchor) }
-            ?? screens.first { $0.frame.contains(mouseLocation) }
-            ?? primary
+        guard let screen = Screen.containing(anchor, in: screens) else { return nil }
         let workArea = screen.visibleFrame
 
         // Anchor on the point, then clamp into the padded work area.

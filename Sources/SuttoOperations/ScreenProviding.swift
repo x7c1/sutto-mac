@@ -11,7 +11,4 @@ public protocol ScreenProviding {
     /// whose bottom-left corner is the global AppKit origin). Empty when no
     /// display is attached.
     func screens() -> [Screen]
-
-    /// The mouse pointer location in AppKit coordinates.
-    func mouseLocation() -> PixelPoint
 }

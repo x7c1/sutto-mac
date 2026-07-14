@@ -14,8 +14,10 @@ public enum PlacementFrameResolver {
     /// Screen selection: the window belongs to the screen containing the
     /// center of its frame. If the center lies on no screen (a window
     /// dragged partially off-screen can have an off-screen center), the
-    /// screen containing the mouse pointer is used instead, and if the
-    /// pointer is on no screen either, the primary screen.
+    /// screen *nearest* to the center is used
+    /// (``Screen/containing(_:in:)``) rather than a blind primary-screen
+    /// fallback, so a center on a secondary screen's outer edge stays on
+    /// that secondary screen.
     ///
     /// The layout's expressions are resolved against the chosen screen's
     /// work area (``Screen/visibleFrame``). Layout offsets grow from the
@@ -29,8 +31,6 @@ public enum PlacementFrameResolver {
     ///   - screens: The current screens in AppKit coordinates; the first
     ///     element is the primary screen (the one whose bottom-left corner
     ///     is the AppKit origin), matching `NSScreen.screens`.
-    ///   - mouseLocation: The mouse pointer in AppKit coordinates, used as
-    ///     the fallback when the window's center is on no screen.
     /// - Returns: The target window frame in AX coordinates, or `nil` when
     ///   `screens` is empty.
     /// - Throws: ``LayoutExpressionParseError`` if any of the layout's
@@ -38,16 +38,14 @@ public enum PlacementFrameResolver {
     public static func resolve(
         layout: Layout,
         windowFrame: PixelRect,
-        screens: [Screen],
-        mouseLocation: PixelPoint
+        screens: [Screen]
     ) throws(LayoutExpressionParseError) -> PixelRect? {
         guard let primary = screens.first else { return nil }
 
         let target = targetScreen(
             windowFrame: windowFrame,
             screens: screens,
-            primary: primary,
-            mouseLocation: mouseLocation
+            primary: primary
         )
         return try resolve(layout: layout, on: target, primary: primary)
     }
@@ -93,19 +91,14 @@ public enum PlacementFrameResolver {
     private static func targetScreen(
         windowFrame: PixelRect,
         screens: [Screen],
-        primary: Screen,
-        mouseLocation: PixelPoint
+        primary: Screen
     ) -> Screen {
         let center = ScreenCoordinateConverter.appKitRect(
             fromAX: windowFrame,
             primaryScreenFrame: primary.frame
         ).center
-        if let screen = screens.first(where: { $0.frame.contains(center) }) {
-            return screen
-        }
-        if let screen = screens.first(where: { $0.frame.contains(mouseLocation) }) {
-            return screen
-        }
-        return primary
+        // `screens` is non-empty here (the caller guards it), so the helper
+        // never returns nil; `?? primary` only satisfies the type.
+        return Screen.containing(center, in: screens) ?? primary
     }
 }

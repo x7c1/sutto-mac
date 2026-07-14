@@ -20,10 +20,6 @@ private let bottomHalf = Layout(
     size: LayoutSize(width: "100%", height: "50%")
 )
 
-/// A mouse position on the primary screen. Used wherever the test wants to
-/// prove that the *window's* screen wins over the mouse's screen.
-private let mouseOnPrimary = PixelPoint(x: 100, y: 100)
-
 /// Every expected frame below is hand-computed. The recurring ingredients
 /// (from ``ScreenFixtures``, primary maxY = 1080):
 ///
@@ -47,8 +43,7 @@ private let mouseOnPrimary = PixelPoint(x: 100, y: 100)
             let frame = try PlacementFrameResolver.resolve(
                 layout: leftHalf,
                 windowFrame: windowOnPrimary,
-                screens: ScreenFixtures.single,
-                mouseLocation: mouseOnPrimary
+                screens: ScreenFixtures.single
             )
             #expect(frame == PixelRect(x: 0, y: 25, width: 960, height: 1055))
         }
@@ -58,8 +53,7 @@ private let mouseOnPrimary = PixelPoint(x: 100, y: 100)
             let frame = try PlacementFrameResolver.resolve(
                 layout: rightHalf,
                 windowFrame: windowOnPrimary,
-                screens: ScreenFixtures.single,
-                mouseLocation: mouseOnPrimary
+                screens: ScreenFixtures.single
             )
             #expect(frame == PixelRect(x: 960, y: 25, width: 960, height: 1055))
         }
@@ -72,8 +66,7 @@ private let mouseOnPrimary = PixelPoint(x: 100, y: 100)
             let frame = try PlacementFrameResolver.resolve(
                 layout: bottomHalf,
                 windowFrame: windowOnPrimary,
-                screens: ScreenFixtures.single,
-                mouseLocation: mouseOnPrimary
+                screens: ScreenFixtures.single
             )
             #expect(frame == PixelRect(x: 0, y: 553, width: 1920, height: 528))
         }
@@ -87,8 +80,7 @@ private let mouseOnPrimary = PixelPoint(x: 100, y: 100)
             let frame = try PlacementFrameResolver.resolve(
                 layout: leftHalf,
                 windowFrame: PixelRect(x: 2000, y: 300, width: 800, height: 600),
-                screens: ScreenFixtures.secondaryRight,
-                mouseLocation: mouseOnPrimary
+                screens: ScreenFixtures.secondaryRight
             )
             #expect(frame == PixelRect(x: 1920, y: 205, width: 800, height: 875))
         }
@@ -99,8 +91,7 @@ private let mouseOnPrimary = PixelPoint(x: 100, y: 100)
             let frame = try PlacementFrameResolver.resolve(
                 layout: leftHalf,
                 windowFrame: PixelRect(x: -1500, y: 300, width: 800, height: 600),
-                screens: ScreenFixtures.secondaryLeft,
-                mouseLocation: mouseOnPrimary
+                screens: ScreenFixtures.secondaryLeft
             )
             #expect(frame == PixelRect(x: -1600, y: 205, width: 800, height: 875))
         }
@@ -112,8 +103,7 @@ private let mouseOnPrimary = PixelPoint(x: 100, y: 100)
             let frame = try PlacementFrameResolver.resolve(
                 layout: leftHalf,
                 windowFrame: PixelRect(x: 100, y: -800, width: 800, height: 600),
-                screens: ScreenFixtures.stackedAbove,
-                mouseLocation: mouseOnPrimary
+                screens: ScreenFixtures.stackedAbove
             )
             #expect(frame == PixelRect(x: 0, y: -875, width: 800, height: 875))
         }
@@ -125,8 +115,7 @@ private let mouseOnPrimary = PixelPoint(x: 100, y: 100)
             let frame = try PlacementFrameResolver.resolve(
                 layout: leftHalf,
                 windowFrame: PixelRect(x: 100, y: 1200, width: 800, height: 600),
-                screens: ScreenFixtures.stackedBelow,
-                mouseLocation: mouseOnPrimary
+                screens: ScreenFixtures.stackedBelow
             )
             #expect(frame == PixelRect(x: 0, y: 1105, width: 800, height: 875))
         }
@@ -138,8 +127,7 @@ private let mouseOnPrimary = PixelPoint(x: 100, y: 100)
             let frame = try PlacementFrameResolver.resolve(
                 layout: leftHalf,
                 windowFrame: PixelRect(x: -1500, y: 1200, width: 800, height: 600),
-                screens: ScreenFixtures.belowAndLeft,
-                mouseLocation: mouseOnPrimary
+                screens: ScreenFixtures.belowAndLeft
             )
             #expect(frame == PixelRect(x: -1600, y: 1105, width: 800, height: 875))
         }
@@ -153,51 +141,63 @@ private let mouseOnPrimary = PixelPoint(x: 100, y: 100)
             let frame = try PlacementFrameResolver.resolve(
                 layout: leftHalf,
                 windowFrame: PixelRect(x: 1520, y: 380, width: 800, height: 600),
-                screens: ScreenFixtures.secondaryRight,
-                mouseLocation: mouseOnPrimary
+                screens: ScreenFixtures.secondaryRight
             )
             #expect(frame == PixelRect(x: 1920, y: 205, width: 800, height: 875))
         }
     }
 
     @Suite struct ScreenSelectionFallbacks {
-        // A window whose center is on no screen: AX (10000, 10000, 100,
-        // 100) → AppKit y = 1080 - 10100 = -9020, center (10050, -8970) —
-        // far off every fixture arrangement.
-        private let offScreenWindow = PixelRect(x: 10000, y: 10000, width: 100, height: 100)
-
-        @Test func prefersTheWindowScreenOverTheMouseScreen() throws {
-            // Window on the right secondary, mouse on the primary: the
-            // window's screen wins, so the frame targets the secondary.
+        @Test func prefersTheScreenContainingTheWindowCenter() throws {
+            // Window centered on the right secondary → the frame targets the
+            // secondary, whose AX work area is (1920, 205, 1600, 875).
             let frame = try PlacementFrameResolver.resolve(
                 layout: leftHalf,
                 windowFrame: PixelRect(x: 2000, y: 300, width: 800, height: 600),
-                screens: ScreenFixtures.secondaryRight,
-                mouseLocation: mouseOnPrimary
+                screens: ScreenFixtures.secondaryRight
             )
             #expect(frame == PixelRect(x: 1920, y: 205, width: 800, height: 875))
         }
 
-        @Test func fallsBackToTheMouseScreenWhenTheCenterIsOffScreen() throws {
-            // Mouse at AppKit (-800, 450) — on the left secondary, whose AX
-            // work area is (-1600, 205, 1600, 875).
+        @Test func fallsBackToTheNearestScreenWhenTheCenterIsOffScreen() throws {
+            // AX (10000, 10000, 100, 100) → AppKit center (10050, -8970),
+            // off every screen but nearest the primary — so it resolves onto
+            // the primary (AX work area (0, 25, 1920, 1055)), not blindly.
             let frame = try PlacementFrameResolver.resolve(
                 layout: leftHalf,
-                windowFrame: offScreenWindow,
-                screens: ScreenFixtures.secondaryLeft,
-                mouseLocation: PixelPoint(x: -800, y: 450)
+                windowFrame: PixelRect(x: 10000, y: 10000, width: 100, height: 100),
+                screens: ScreenFixtures.secondaryLeft
+            )
+            #expect(frame == PixelRect(x: 0, y: 25, width: 960, height: 1055))
+        }
+
+        @Test func fallsBackToTheNearestScreenEvenWhenItIsNotThePrimary() throws {
+            // AX (-5000, 300, 100, 100) → AppKit center (-4950, 730), off
+            // every screen but nearest the left secondary — so it resolves
+            // onto that secondary (AX work area (-1600, 205, 1600, 875)),
+            // proving the fallback is genuinely nearest-wins, not primary.
+            let frame = try PlacementFrameResolver.resolve(
+                layout: leftHalf,
+                windowFrame: PixelRect(x: -5000, y: 300, width: 100, height: 100),
+                screens: ScreenFixtures.secondaryLeft
             )
             #expect(frame == PixelRect(x: -1600, y: 205, width: 800, height: 875))
         }
 
-        @Test func fallsBackToThePrimaryWhenTheMouseIsAlsoOffScreen() throws {
+        /// The placement counterpart of the top-edge bug: a window whose
+        /// center lands on the exact top row of a secondary stacked above the
+        /// primary (`y == frame.maxY`, contained by no screen's half-open
+        /// frame) must still resolve onto that secondary, not the primary.
+        @Test func resolvesACenterOnTheSecondaryTopEdgeToTheSecondary() throws {
+            // AX (350, -950, 100, 100) → AppKit center (400, 1980), exactly
+            // on the stacked-above secondary's top edge (1080 + 900 = 1980).
+            // Its AX work area is (0, -875, 1600, 875).
             let frame = try PlacementFrameResolver.resolve(
                 layout: leftHalf,
-                windowFrame: offScreenWindow,
-                screens: ScreenFixtures.secondaryLeft,
-                mouseLocation: PixelPoint(x: 99999, y: 99999)
+                windowFrame: PixelRect(x: 350, y: -950, width: 100, height: 100),
+                screens: ScreenFixtures.stackedAbove
             )
-            #expect(frame == PixelRect(x: 0, y: 25, width: 960, height: 1055))
+            #expect(frame == PixelRect(x: 0, y: -875, width: 800, height: 875))
         }
     }
 
@@ -261,8 +261,7 @@ private let mouseOnPrimary = PixelPoint(x: 100, y: 100)
             let frame = try PlacementFrameResolver.resolve(
                 layout: leftHalf,
                 windowFrame: PixelRect(x: 0, y: 0, width: 800, height: 600),
-                screens: [],
-                mouseLocation: mouseOnPrimary
+                screens: []
             )
             #expect(frame == nil)
         }
@@ -277,8 +276,7 @@ private let mouseOnPrimary = PixelPoint(x: 100, y: 100)
                 try PlacementFrameResolver.resolve(
                     layout: broken,
                     windowFrame: PixelRect(x: 0, y: 0, width: 800, height: 600),
-                    screens: ScreenFixtures.single,
-                    mouseLocation: mouseOnPrimary
+                    screens: ScreenFixtures.single
                 )
             }
         }

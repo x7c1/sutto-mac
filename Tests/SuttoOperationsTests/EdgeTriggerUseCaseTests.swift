@@ -56,15 +56,12 @@ import Testing
 
     private final class ScreenProviderStub: ScreenProviding {
         var currentScreens: [Screen]
-        var mouse: PixelPoint
 
-        init(screens: [Screen], mouse: PixelPoint = PixelPoint(x: 100, y: 100)) {
+        init(screens: [Screen]) {
             currentScreens = screens
-            self.mouse = mouse
         }
 
         func screens() -> [Screen] { currentScreens }
-        func mouseLocation() -> PixelPoint { mouse }
     }
 
     /// A `Scheduling` fake: records the pending action and fires it on demand.

@@ -55,10 +55,6 @@ final class StubScreenProvider: ScreenProviding {
     func screens() -> [Screen] {
         stubbedScreens
     }
-
-    func mouseLocation() -> PixelPoint {
-        PixelPoint(x: 0, y: 0)
-    }
 }
 
 /// In-memory ``PreferencesRepository`` for use-case tests.
