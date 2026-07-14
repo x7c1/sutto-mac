@@ -30,11 +30,16 @@ import os
 /// so the panel-follow rests exactly on the final cursor position rather than
 /// a frame behind.
 ///
-/// **Dismissal.** When the panel is shown the use case suppresses dismissal
-/// and keeps it suppressed after the drag ends — GNOME leaves the panel up
-/// until a layout is chosen. Escape and layout selection are un-gated
-/// elsewhere, so the user can still dismiss or choose; ``notifyPanelDismissed()``
-/// is the hook the composition layer calls when either happens.
+/// **Dismissal.** The edge-triggered panel dismisses exactly like the
+/// shortcut-triggered one: it auto-hides once the cursor has left it, and a
+/// click outside it closes it. No suppression is needed. During the drag the
+/// cursor follows the panel, so auto-hide does not fire; the click-outside
+/// monitor watches mouse-*down*, which does not occur mid-drag (the button is
+/// already held — the drop is a mouse-*up*). After the drop, moving the cursor
+/// off the panel lets it auto-hide, and clicking elsewhere dismisses it.
+/// ``notifyPanelDismissed()`` is the hook the composition layer calls whenever
+/// the panel closes (auto-hide, click-outside, Escape, or layout selection),
+/// returning the policy to idle.
 ///
 /// Not this type's concern: whether the feature is enabled (a preference), or
 /// coexistence with macOS tiling. The composition layer calls ``start()``
@@ -131,17 +136,15 @@ public final class EdgeTriggerUseCase {
     }
 
     /// Called by the composition layer when the panel is dismissed — a layout
-    /// was selected, or it auto-hid, or Escape closed it. Returns the policy
-    /// to ``SuttoDomain/EdgeTriggerPolicy/State/idle``, cancels any pending
-    /// dwell timer, and re-allows dismissal for cleanliness (harmless, since
-    /// the panel's `hide()` already resets suppression).
+    /// was selected, or it auto-hid, or a click outside or Escape closed it.
+    /// Returns the policy to ``SuttoDomain/EdgeTriggerPolicy/State/idle`` and
+    /// cancels any pending dwell timer and drag tracking.
     public func notifyPanelDismissed() {
         apply(policy.handle(.panelDismissed))
         dwellTimer.cancel()
         throttle.cancel()
         resetThrottle()
         resetDragTracking()
-        panel.allowDismissal()
     }
 
     // MARK: - Drag stream
@@ -262,9 +265,9 @@ public final class EdgeTriggerUseCase {
         case .cancelDwellTimer:
             dwellTimer.cancel()
         case let .showPanel(point):
+            // The panel then dismisses on its own terms (auto-hide once the
+            // cursor leaves it, or a click outside) — no suppression needed.
             panel.show(at: point)
-            // Hold the panel open for the whole drag-triggered session.
-            panel.suppressDismissal()
         case let .movePanel(point):
             panel.move(to: point)
         }

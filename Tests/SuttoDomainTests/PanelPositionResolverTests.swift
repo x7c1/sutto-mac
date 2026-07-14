@@ -122,6 +122,55 @@ private let panelHeight = 300.0
         }
     }
 
+    /// The edge-trigger path anchors the panel's *top edge* at the anchor
+    /// (the cursor) and keeps the horizontal centering, so the panel hangs
+    /// below the cursor. The work-area clamp is identical to the centered
+    /// path.
+    @Suite struct TopAnchored {
+        @Test func anchorsTheTopEdgeAtTheAnchorAndCentersHorizontally() {
+            let frame = PanelPositionResolver.resolve(
+                anchor: PixelPoint(x: 960, y: 500),
+                panelWidth: panelWidth,
+                panelHeight: panelHeight,
+                verticalAnchor: .top,
+                screens: ScreenFixtures.single,
+                mouseLocation: mouseOnPrimary
+            )
+            // x centered (960 − 300 = 660); origin.y = 500 − 300 = 200 so
+            // the top edge (200 + 300) lands on the anchor's y = 500.
+            #expect(frame == PixelRect(x: 660, y: 200, width: 600, height: 300))
+            #expect(frame!.y + frame!.height == 500)
+        }
+
+        /// A high-y anchor (cursor near the work-area top) would push the
+        /// panel off the top, so the top-edge clamp pins it at 745.
+        @Test func clampsToTheWorkAreaTopWhenTheAnchorIsHigh() {
+            let frame = PanelPositionResolver.resolve(
+                anchor: PixelPoint(x: 960, y: 1050),
+                panelWidth: panelWidth,
+                panelHeight: panelHeight,
+                verticalAnchor: .top,
+                screens: ScreenFixtures.single,
+                mouseLocation: mouseOnPrimary
+            )
+            #expect(frame == PixelRect(x: 660, y: 745, width: 600, height: 300))
+        }
+
+        /// A low-y anchor drives the top-anchored origin negative; it clamps
+        /// up to the padding inset.
+        @Test func clampsToTheBottomPaddingWhenTheAnchorIsLow() {
+            let frame = PanelPositionResolver.resolve(
+                anchor: PixelPoint(x: 960, y: 20),
+                panelWidth: panelWidth,
+                panelHeight: panelHeight,
+                verticalAnchor: .top,
+                screens: ScreenFixtures.single,
+                mouseLocation: mouseOnPrimary
+            )
+            #expect(frame == PixelRect(x: 660, y: 10, width: 600, height: 300))
+        }
+    }
+
     @Suite struct AcrossScreens {
         /// A window straddling the primary/secondary boundary belongs to
         /// the screen containing its *center* — the anchor. Center on the

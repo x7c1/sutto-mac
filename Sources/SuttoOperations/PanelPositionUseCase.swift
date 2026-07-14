@@ -68,9 +68,12 @@ public final class PanelPositionUseCase {
     /// point rather than the captured window — the v0.4 edge-trigger path,
     /// where the panel opens at (and follows) the cursor instead of the
     /// window center. Uses the same ``SuttoDomain/PanelPositionResolver``
-    /// (center-on-anchor + work-area clamp) as ``panelFrame(width:height:)``,
-    /// so an anchor near a screen edge is pushed back inside the work area
-    /// identically; only the anchor source differs.
+    /// and work-area clamp as ``panelFrame(width:height:)``, so an anchor
+    /// near a screen edge is pushed back inside the work area identically.
+    /// It differs only in vertical anchoring: the panel's *top edge* sits
+    /// at the cursor (``SuttoDomain/PanelPositionResolver/VerticalAnchor/top``),
+    /// so it hangs below the cursor rather than covering it, while the
+    /// horizontal centering is unchanged.
     ///
     /// Returns `nil` only when there are no screens (the resolver has
     /// nothing to clamp against); unlike the window-centered path it does
@@ -79,8 +82,9 @@ public final class PanelPositionUseCase {
     /// - Parameters:
     ///   - width: The panel's width in points.
     ///   - height: The panel's height in points.
-    ///   - anchor: The point to center the panel on, in AppKit coordinates
+    ///   - anchor: The point to anchor the panel on, in AppKit coordinates
     ///     (global bottom-left origin) — the cursor at edge-trigger time.
+    ///     The panel is centered on the anchor's x and hangs below its y.
     public func panelFrame(
         width: Double,
         height: Double,
@@ -90,6 +94,7 @@ public final class PanelPositionUseCase {
             anchor: anchor,
             panelWidth: width,
             panelHeight: height,
+            verticalAnchor: .top,
             screens: screens.screens(),
             mouseLocation: screens.mouseLocation()
         )

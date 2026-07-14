@@ -94,16 +94,6 @@ public final class LayoutPanel {
     /// monitor that is never removed keeps firing — and leaks).
     private var mouseMonitors: [Any] = []
 
-    /// Whether automatic dismissal is currently suppressed. The v0.4
-    /// edge-trigger session holds this while a drag-triggered panel is up:
-    /// the panel opens at the cursor and follows it, and neither the
-    /// auto-hide timer nor the click-outside monitors may close it until
-    /// the drag ends / a layout is selected (the caller releases it via
-    /// ``allowDismissal()``). The shortcut path never sets it, so its
-    /// dismissal behaviour is unchanged. Reset on every ``hide()`` so a
-    /// subsequent shortcut-path ``show()`` always starts dismissible.
-    private var dismissalSuppressed = false
-
     public init(
         model: ActivePanelModelUseCase,
         selection: LayoutSelectionUseCase,
@@ -132,17 +122,20 @@ public final class LayoutPanel {
         show(anchor: nil)
     }
 
-    /// Shows the panel centered on `point` (an AppKit global coordinate,
-    /// bottom-left origin), clamped back inside that point's screen work
+    /// Shows the panel with its top edge at `point` and centered on its x
+    /// (an AppKit global coordinate, bottom-left origin), so the panel hangs
+    /// below the cursor; it is clamped back inside that point's screen work
     /// area by the same 10 px inset the shortcut path uses — the v0.4
     /// edge-trigger path, which opens the panel at the cursor. Otherwise
     /// behaves exactly like ``show()``: it captures the frontmost window
     /// (the one the drag is targeting), renders, installs the mouse
     /// monitors, and takes key status without activating the app.
     ///
-    /// It does not itself suppress dismissal; the edge-trigger session
-    /// pairs this with ``suppressDismissal()`` so the panel stays up while
-    /// the drag continues.
+    /// It shares the shortcut path's dismissal behaviour unchanged: the
+    /// panel auto-hides once the cursor leaves it and closes on a click
+    /// outside. During the drag the cursor follows the panel (so auto-hide
+    /// does not fire) and no mouse-down occurs mid-drag (so the click-outside
+    /// monitor stays quiet); after the drop, moving away lets it auto-hide.
     public func show(at point: PixelPoint) {
         show(anchor: point)
     }
@@ -192,9 +185,12 @@ public final class LayoutPanel {
         panel.makeKeyAndOrderFront(nil)
     }
 
-    /// Repositions the already-visible panel so it is centered on `point`
-    /// (AppKit global coordinate), clamped into that point's work area —
-    /// the follow-the-cursor step the edge-trigger session calls
+    /// Repositions the already-visible panel so its top edge sits at `point`
+    /// and it stays centered on `point`'s x (AppKit global coordinate),
+    /// clamped into that point's work area — the same top-anchored
+    /// resolution ``show(at:)`` uses, so the panel keeps its top edge under
+    /// the cursor while dragging. This is the follow-the-cursor step the
+    /// edge-trigger session calls
     /// repeatedly while the drag continues. It only moves the window: no
     /// re-render, no re-capture, and no monitor churn, so it is cheap
     /// enough to run on every drag update. A no-op when the panel is not on
@@ -220,21 +216,6 @@ public final class LayoutPanel {
         return position.panelFrame(width: size.width, height: size.height)
     }
 
-    /// Suppresses automatic dismissal until ``allowDismissal()``: while
-    /// suppressed the auto-hide timer and the click-outside monitors leave
-    /// the panel open. The edge-trigger session holds this for the duration
-    /// of a drag-triggered opening. Explicit ``hide()`` (Escape, the
-    /// settings gear) and layout selection are unaffected.
-    public func suppressDismissal() {
-        dismissalSuppressed = true
-    }
-
-    /// Resumes normal automatic dismissal after ``suppressDismissal()`` —
-    /// called when the drag ends or a layout is selected.
-    public func allowDismissal() {
-        dismissalSuppressed = false
-    }
-
     /// Hides the panel. Keyboard focus returns to wherever it was, and the
     /// panel's own navigation focus is dropped so the next show starts
     /// unfocused again. Any pending auto-hide is cancelled and the mouse
@@ -244,9 +225,6 @@ public final class LayoutPanel {
         removeMouseMonitors()
         clearFocus()
         panel?.orderOut(nil)
-        // A fresh opening starts dismissible; the edge-trigger session
-        // re-suppresses if it needs to.
-        dismissalSuppressed = false
         // Every close path funnels through here, so this is the single point
         // that tells the edge-trigger session the panel is gone. Fired last,
         // after the panel is off screen and state is reset.
@@ -529,9 +507,6 @@ public final class LayoutPanel {
 
     private func autoHideTimerFired() {
         autoHideTimer = nil
-        // Suppressed while an edge-trigger drag session holds the panel
-        // open — the timer must not close it.
-        guard !dismissalSuppressed else { return }
         // The policy double-checks the hover state (as GNOME does when its
         // timeout fires), so a stale timer cannot hide a hovered panel.
         if autoHide.shouldHideWhenHideTimerFires {
@@ -559,7 +534,7 @@ public final class LayoutPanel {
             // Global monitor callbacks arrive on the main thread; the
             // handler parameter is just not statically isolated.
             MainActor.assumeIsolated {
-                guard let self, !self.dismissalSuppressed else { return }
+                guard let self else { return }
                 // Any click another app receives is outside the panel.
                 self.hide()
             }
@@ -572,9 +547,8 @@ public final class LayoutPanel {
                 // Clicks on the panel itself (its regions, its padding)
                 // must not close it; clicks on any other Sutto window are
                 // outside. The event passes through unchanged either way —
-                // observing, not swallowing. Suppressed during an
-                // edge-trigger drag session.
-                if let self, !self.dismissalSuppressed, event.window !== self.panel {
+                // observing, not swallowing.
+                if let self, event.window !== self.panel {
                     self.hide()
                 }
             }
@@ -593,11 +567,11 @@ public final class LayoutPanel {
 }
 
 /// The edge-trigger session drives the panel through this Operations-layer
-/// surface. `LayoutPanel` already implements all four operations with matching
-/// signatures — `show(at:)`, `move(to:)`, `suppressDismissal()`,
-/// `allowDismissal()` — so the conformance is a declaration only. Keeping it
-/// in the UI layer (which already depends on SuttoOperations) leaves the
-/// composition root to just hand the panel over as an `any EdgeTriggerPanel`.
+/// surface. `LayoutPanel` already implements both operations with matching
+/// signatures — `show(at:)` and `move(to:)` — so the conformance is a
+/// declaration only. Keeping it in the UI layer (which already depends on
+/// SuttoOperations) leaves the composition root to just hand the panel over
+/// as an `any EdgeTriggerPanel`.
 extension LayoutPanel: EdgeTriggerPanel {}
 
 /// The footer's settings gear: a template SF Symbol tinted with the
