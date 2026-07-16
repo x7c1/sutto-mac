@@ -157,6 +157,12 @@ public final class LayoutPanel {
         let panel = self.panel ?? makePanel()
         self.panel = panel
         renderContentIfNeeded(in: panel)
+        // Give the recommended layout the initial keyboard focus on every
+        // open — each opening starts unfocused (hide() clears focus), and the
+        // model resolution above re-runs, so a fresh recommendation is honored
+        // even when the content itself was not rebuilt. With no recommendation
+        // the panel opens unfocused, as before.
+        focusRecommendedRegion()
 
         let size = panel.frame.size
         if let frame = resolveFrame(anchor: anchor, size: size) {
@@ -309,6 +315,22 @@ public final class LayoutPanel {
         focusedCoordinate = nil
     }
 
+    /// Places the panel's initial keyboard focus on the recommended layout
+    /// (the v0.5 layout history), the GNOME "start on the selected layout"
+    /// that v0.3 deferred. The navigator resolves the recommendation to the
+    /// first matching region's coordinate; `nil` (nothing recommended, or the
+    /// recommended layout is not on a connected display) leaves the panel
+    /// unfocused so the first key press establishes focus as before.
+    private func focusRecommendedRegion() {
+        guard
+            let navigator,
+            let coordinate = navigator.recommendedCoordinates(
+                for: renderedModel?.recommendedLayoutId
+            ).first
+        else { return }
+        focus(coordinate)
+    }
+
     /// Rebuilds the miniature previews from the current panel model,
     /// skipping the rebuild when it matches what is already rendered (the
     /// common case of reopening the panel with nothing changed meanwhile).
@@ -321,7 +343,15 @@ public final class LayoutPanel {
 
         clearFocus()
         let content = makeContent(from: model)
-        navigator = MiniaturePanelNavigator(model: model)
+        let navigator = MiniaturePanelNavigator(model: model)
+        self.navigator = navigator
+        // Highlight the region(s) standing for the recommended layout. This
+        // is tied to the model, so it lives in the rebuild path; the initial
+        // keyboard focus is applied separately, on every show (see
+        // `focusRecommendedRegion`).
+        for coordinate in navigator.recommendedCoordinates(for: model.recommendedLayoutId) {
+            regionButtons[coordinate]?.isRecommended = true
+        }
         let background = makeBackground(containing: content)
         panel.contentView = background
         panel.setContentSize(content.fittingSize)

@@ -20,11 +20,13 @@
 ///   within the row (left-to-right, top-to-bottom, larger regions before
 ///   the smaller ones overlapping them), and it wraps around in both
 ///   directions.
-/// - **The panel opens unfocused.** The GNOME navigator gives initial focus
-///   to the *selected* layout; selection state (layout history) is deferred
-///   within v0.3, so — like the GNOME panel with nothing selected — no
-///   region is focused until the first key press, which focuses the
-///   top-left region regardless of the pressed direction.
+/// - **The panel opens on the recommended layout, else unfocused.** The GNOME
+///   navigator gives initial focus to the *selected* layout;
+///   ``recommendedCoordinates(for:)`` resolves the layout-history
+///   recommendation the panel focuses on open (v0.5). With no recommendation
+///   — like the GNOME panel with nothing selected — no region is focused
+///   until the first key press, which focuses the top-left region regardless
+///   of the pressed direction.
 /// - **Disconnected displays are skipped.** Their regions render grayed out
 ///   and non-clickable, so they are not traversal targets — the GNOME
 ///   navigator skips non-reactive buttons the same way.
@@ -133,6 +135,31 @@ public struct MiniaturePanelNavigator: Equatable, Sendable {
         targets.min { a, b in
             a.frame.y != b.frame.y ? a.frame.y < b.frame.y : a.frame.x < b.frame.x
         }?.coordinate
+    }
+
+    /// The coordinates of every connected region standing for `layoutId` —
+    /// the layout the panel recommends from the layout history — ordered
+    /// top-left first (the same smallest-y-then-smallest-x rule as
+    /// ``firstFocus``). Empty when `layoutId` is `nil` or no connected region
+    /// matches.
+    ///
+    /// The panel highlights all of these as recommended and gives the first
+    /// one the panel's initial keyboard focus, finally honoring the GNOME
+    /// navigator's "start on the selected layout" that v0.3 deferred: with a
+    /// recommendation the panel opens focused on it, and without one it opens
+    /// unfocused as before (the first key press then focuses the top-left
+    /// region). Regions on disconnected displays are excluded — they render
+    /// dimmed and non-clickable, so they are never traversal targets and must
+    /// not be highlighted or focused.
+    public func recommendedCoordinates(for layoutId: LayoutId?) -> [Coordinate] {
+        guard let layoutId else { return [] }
+        return
+            targets
+            .filter { $0.layout.id == layoutId }
+            .sorted { a, b in
+                a.frame.y != b.frame.y ? a.frame.y < b.frame.y : a.frame.x < b.frame.x
+            }
+            .map(\.coordinate)
     }
 
     /// Where an arrow press moves the focus.

@@ -202,8 +202,9 @@ final class MiniatureDisplayView: NSView {
 /// title.
 ///
 /// Hover feedback follows the GNOME style priority (hover beats the normal
-/// style; the selected state arrives with layout history, deferred within
-/// v0.3). Exposed to accessibility as a button titled with the layout
+/// style; the recommended state — the GNOME "selected" style — arrives with
+/// the v0.5 layout history and tints the region blue). Exposed to
+/// accessibility as a button titled with the layout
 /// label even when the visible text is dropped — keyboard navigation and
 /// the e2e harness depend on the title.
 ///
@@ -225,6 +226,15 @@ final class LayoutRegionButton: NSButton {
     /// Whether the panel's keyboard navigation focuses this region. Set by
     /// the panel only — mouse events never change it.
     var isKeyboardFocused = false {
+        didSet { applyStyle() }
+    }
+
+    /// Whether this region stands for the layout the panel recommends from
+    /// the layout history (v0.5). Set by the panel only, from the model's
+    /// `recommendedLayoutId`. It tints the region as "suggested"; keyboard
+    /// focus is a separate, overlaid style (see `applyStyle`), so a region
+    /// can be both recommended and focused when the panel opens.
+    var isRecommended = false {
         didSet { applyStyle() }
     }
 
@@ -296,22 +306,45 @@ final class LayoutRegionButton: NSButton {
         applyStyle()
     }
 
-    /// Style priority (the GNOME `getButtonStyle` order with the keyboard
-    /// focus folded in): the background highlights on hover *or* focus —
-    /// GNOME renders both states with the same style — while the border
-    /// grades focus above hover above normal so the keyboard position
-    /// stays visible under a concurrent hover.
+    /// Style priority (the GNOME `getButtonStyle` order, with keyboard focus
+    /// and the v0.5 recommendation folded in). Two independent signals are
+    /// kept visually separate so both can show at once when the panel opens
+    /// focused on its recommendation:
+    ///
+    /// - **Background** grades hover over recommended over normal: hover gives
+    ///   immediate pointer feedback, the recommendation tints the region blue
+    ///   ("suggested"), and everything else is the flat gray fill.
+    /// - **Border** grades focus over hover over recommended over normal, so
+    ///   the keyboard position (a bright, thicker white rim) stays legible on
+    ///   top of the recommendation's blue rim and any concurrent hover.
+    ///
+    /// The recommendation therefore reads as a blue fill and keyboard focus as
+    /// the white focus border — distinct channels rather than a shared color.
+    /// This split is an initial pass; the exact treatment is expected to be
+    /// refined by on-device review.
     private func applyStyle() {
-        layer?.backgroundColor =
-            (isHovered || isKeyboardFocused
-            ? PanelPalette.regionBackgroundHovered
-            : PanelPalette.regionBackground).cgColor
-        layer?.borderColor =
-            (isKeyboardFocused
-            ? PanelPalette.regionBorderFocused
-            : isHovered
-                ? PanelPalette.regionBorderHovered
-                : PanelPalette.regionBorder).cgColor
+        let background: NSColor
+        if isHovered {
+            background = PanelPalette.regionBackgroundHovered
+        } else if isRecommended {
+            background = PanelPalette.regionBackgroundRecommended
+        } else {
+            background = PanelPalette.regionBackground
+        }
+        layer?.backgroundColor = background.cgColor
+
+        let border: NSColor
+        if isKeyboardFocused {
+            border = PanelPalette.regionBorderFocused
+        } else if isHovered {
+            border = PanelPalette.regionBorderHovered
+        } else if isRecommended {
+            border = PanelPalette.regionBorderRecommended
+        } else {
+            border = PanelPalette.regionBorder
+        }
+        layer?.borderColor = border.cgColor
+
         layer?.borderWidth =
             isKeyboardFocused
             ? PanelMetrics.regionFocusedBorderWidth
