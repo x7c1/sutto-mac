@@ -114,6 +114,17 @@ import Testing
         }
     }
 
+    /// Scriptable licensing gate: `isOpen` drives ``EdgeTriggerUseCase``'s
+    /// show guard, `closedCount` records how often `onGateClosed` fired.
+    private final class GateSpy {
+        var isOpen: Bool
+        private(set) var closedCount = 0
+
+        init(isOpen: Bool) { self.isOpen = isOpen }
+
+        func reportClosed() { closedCount += 1 }
+    }
+
     // MARK: - Fixture
 
     /// A single 1000x1000 screen at the origin, so edge math is easy: a point
@@ -133,12 +144,14 @@ import Testing
         let throttle: SchedulerFake
         let hide: SchedulerFake
         let panel: PanelSpy
+        let gate: GateSpy
     }
 
     private func makeHarness(
         captureSucceeds: Bool = true,
         windowFrame: PixelRect? = windowOrigin,
-        screens: [Screen] = [screen]
+        screens: [Screen] = [screen],
+        gateOpen: Bool = true
     ) -> Harness {
         let drags = DragObserverFake()
         let windows = WindowControllerFake(captureSucceeds: captureSucceeds, frame: windowFrame)
@@ -146,6 +159,7 @@ import Testing
         let throttle = SchedulerFake()
         let hide = SchedulerFake()
         let panel = PanelSpy()
+        let gate = GateSpy(isOpen: gateOpen)
         let useCase = EdgeTriggerUseCase(
             drags: drags,
             windows: windows,
@@ -153,12 +167,14 @@ import Testing
             panel: panel,
             dwellTimer: dwell,
             throttle: throttle,
-            hideTimer: hide
+            hideTimer: hide,
+            isGateOpen: { gate.isOpen },
+            onGateClosed: { gate.reportClosed() }
         )
         useCase.start()
         return Harness(
             useCase: useCase, drags: drags, windows: windows,
-            dwell: dwell, throttle: throttle, hide: hide, panel: panel)
+            dwell: dwell, throttle: throttle, hide: hide, panel: panel, gate: gate)
     }
 
     /// Moves the fake window's frame origin so the next `frame(of:)` read
@@ -293,6 +309,35 @@ import Testing
         // panel then dismisses on its own terms (auto-hide / click-outside).
         h.dwell.fire()
         #expect(h.panel.calls == [.show(PixelPoint(x: 5, y: 400))])
+    }
+
+    // MARK: - Licensing gate
+
+    @Test func closedGateBlocksTheShowAndReportsItInstead() {
+        let h = makeHarness(gateOpen: false)
+
+        h.drags.emit(.began(PixelPoint(x: 300, y: 300)))
+        moveWindow(h.windows, by: 50)
+        h.drags.emit(.moved(PixelPoint(x: 5, y: 400)))  // at the left edge
+        // The dwell still arms and fires (the gate does not disturb the drag
+        // machinery), but the show is refused and reported instead.
+        #expect(h.dwell.scheduleCount == 1)
+        h.dwell.fire()
+
+        #expect(h.panel.calls.isEmpty)
+        #expect(h.gate.closedCount == 1)
+    }
+
+    @Test func openGateShowsAndDoesNotReport() {
+        let h = makeHarness(gateOpen: true)
+
+        h.drags.emit(.began(PixelPoint(x: 300, y: 300)))
+        moveWindow(h.windows, by: 50)
+        h.drags.emit(.moved(PixelPoint(x: 5, y: 400)))
+        h.dwell.fire()
+
+        #expect(h.panel.calls == [.show(PixelPoint(x: 5, y: 400))])
+        #expect(h.gate.closedCount == 0)
     }
 
     @Test func panelFollowsTheCursorWhileTriggeredAndDragging() {

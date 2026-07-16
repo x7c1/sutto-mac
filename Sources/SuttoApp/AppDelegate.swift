@@ -22,6 +22,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelShortcut: PanelShortcutUseCase?
     private var screenObserver: ScreenParametersObserver?
     private var edgeTrigger: EdgeTriggerUseCase?
+    private var licenseGate: LicenseGate?
+    /// Opens the licensing entry point when a gated panel-show is refused.
+    /// Assigned once during launch wiring; the gate callbacks call it lazily,
+    /// so it is always set by the time a user could trigger a gated action.
+    private var presentSettings: (() -> Void)?
+    /// Opens Settings on the License tab — the entry point a locked user needs.
+    /// Assigned once during launch wiring, alongside ``presentSettings``.
+    private var presentLicenseSettings: (() -> Void)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // LSUIElement in Info.plist already keeps the app out of the Dock;
@@ -62,6 +70,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             directory: FileSpaceCollectionRepository.defaultDirectory()
         )
         let preferences = UserDefaultsPreferencesRepository()
+
+        // Licensing gate (v0.6): every panel-show is gated behind a cached
+        // license verdict. Assembled here from the file repository (living
+        // beside the other *.sutto.json documents), the URLSession-backed API
+        // client, and this device's identity. The gate reads only the cached
+        // verdict — never the network — so an unreachable or vanished backend
+        // never locks out a valid device (the fail-open policy). The two
+        // panel-show seams below (`togglePanel`, `edgeTrigger`) consult it, and
+        // the launch pass at the end of this method validates / counts a trial
+        // day once.
+        let licenseGate = LicenseGate(
+            repository: FileLicenseRepository(
+                directory: FileSpaceCollectionRepository.defaultDirectory()
+            ),
+            apiClient: URLSessionLicenseApiClient(baseURL: Self.licenseApiBaseURL),
+            device: Self.provisionalDeviceIdentity()
+        )
+        self.licenseGate = licenseGate
 
         // Monitor environments: every physical display setup is identified
         // and remembers the collection the user activated in it, GNOME's
@@ -165,7 +191,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 presetGenerator.ensurePresetsForCurrentMonitors()
                 panel?.show()
             },
-            hidePanel: { [weak panel] in panel?.hide() }
+            hidePanel: { [weak panel] in panel?.hide() },
+            // Fail-open if the gate is somehow gone: never lock the user out of
+            // their own panel because of a wiring fault.
+            isGateOpen: { [weak licenseGate] in licenseGate?.isOpen() ?? true },
+            onGateClosed: { [weak self] in self?.openLicensingEntryPoint() }
         )
 
         let settings = SettingsWindowController(
@@ -183,6 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 )
             ),
             shortcut: registerGlobalShortcut(with: togglePanel, preferences: preferences),
+            license: licenseGate,
             position: panelPosition,
             session: targetSession
         )
@@ -193,6 +224,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let presentSettings = {
             presetGenerator.ensurePresetsForCurrentMonitors()
             settings.present()
+        }
+        // Held so the licensing gate callbacks can reach Settings — the entry
+        // point a locked user needs to activate or purchase (design decision
+        // #11: Settings stays reachable while the gate is closed).
+        self.presentSettings = presentSettings
+
+        // The licensing-gate entry point opens Settings straight on the License
+        // tab, so a locked user lands on activation/purchase rather than the
+        // remembered tab. Same ensure-on-open as the plain present.
+        self.presentLicenseSettings = {
+            presetGenerator.ensurePresetsForCurrentMonitors()
+            settings.present(selecting: .license)
         }
 
         // ⌘, while the panel is open jumps to settings (GNOME behavior,
@@ -219,6 +262,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItemController = StatusItemController(
             permission: permission,
             edgeTiling: edgeTilingCoexistence,
+            // The menu's license line shares the settings pane's wording, read
+            // fresh from the gate each time the menu opens.
+            licenseStatusText: { [weak licenseGate] in
+                guard let licenseGate else { return "" }
+                return LicensePresentation.statusText(for: licenseGate.state(), now: Date())
+            },
             onTogglePanel: { togglePanel.toggle() },
             onOpenSettings: presentSettings,
             onShowEdgeTilingGuidance: {
@@ -274,7 +323,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panel: panel,
             dwellTimer: TimerScheduler(),
             throttle: TimerScheduler(),
-            hideTimer: TimerScheduler()
+            hideTimer: TimerScheduler(),
+            // Same gate as the shortcut/menu path, checked right before the
+            // edge trigger would reveal the panel. Fail-open if the gate is
+            // gone, for the same reason as the toggle path.
+            isGateOpen: { [weak licenseGate] in licenseGate?.isOpen() ?? true },
+            onGateClosed: { [weak self] in self?.openLicensingEntryPoint() }
         )
         self.edgeTrigger = edgeTrigger
         // Every panel close funnels through LayoutPanel.hide(); route that to
@@ -291,6 +345,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             permissionOnboarding = onboarding
             onboarding.present()
         }
+
+        // Launch licensing pass (design decisions #9 / #10), run once here and
+        // never on a timer. Ordered validate → record so a device whose
+        // validate downgraded it does not then also count a trial day:
+        //  - a `valid` device attempts a single validate; a no-answer keeps the
+        //    cached verdict (fail-open), and only an authoritative NO downgrades;
+        //  - a `trial` device counts today as one day of use (at most once per
+        //    calendar day), closing the gate when the 30 days are spent.
+        // Both are no-ops for the other states, so calling them unconditionally
+        // is safe. Off the launch path in a Task since validate is async; the
+        // gate wiring above does not depend on it having finished.
+        Task { [licenseGate] in
+            await licenseGate.validateOnLaunch()
+            licenseGate.recordTrialUsageOnLaunch()
+        }
+    }
+
+    /// Opens the entry point a user reaches when the licensing gate refuses a
+    /// panel-show — the License settings tab, where they activate a key or
+    /// start a purchase. Settings deliberately stays outside the gate so it is
+    /// reachable while locked (design decision #11).
+    private func openLicensingEntryPoint() {
+        presentLicenseSettings?()
+    }
+
+    /// The license backend root the API client posts to.
+    ///
+    /// TODO(sub-PR B1): replace with the real license API base URL once the
+    /// backend is live. Until then it points at a non-resolving host, so every
+    /// activate/validate returns `.noResponse` — which, by the fail-open
+    /// policy, leaves a valid device unlocked and lets a trial count locally.
+    ///
+    /// `.invalid` is not a typo: it is the top-level domain RFC 2606 / RFC 6761
+    /// reserve as guaranteed never to resolve, so the request fails at DNS
+    /// without a packet leaving the machine — a deliberately unreachable
+    /// placeholder, and a cleaner stand-in for "no backend" than a real domain
+    /// like `example.com`, which would actually be contacted on every launch.
+    private static let licenseApiBaseURL = URL(string: "https://license.sutto.invalid")!
+
+    /// This device's provisional identity for activation.
+    ///
+    /// TODO(sub-PR B1): derive the real device id (an `IOPlatformUUID` versus a
+    /// generated-and-persisted UUID) and label to match the backend's
+    /// activation contract and its device-limit accounting. For now the local
+    /// machine name stands in for both id and label.
+    private static func provisionalDeviceIdentity() -> DeviceIdentity {
+        let name = Host.current().localizedName ?? "Mac"
+        return DeviceIdentity(id: name, label: name)
     }
 
     /// The invisible main menu that gives the accessory app standard
