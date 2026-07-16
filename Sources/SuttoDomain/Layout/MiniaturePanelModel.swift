@@ -110,9 +110,36 @@ public struct MiniaturePanelModel: Equatable, Sendable {
     /// into everything derived from the model.
     public let metrics: Metrics
 
-    public init(rows: [Row], metrics: Metrics = .default) {
+    /// The layout the panel should recommend for the window that was captured
+    /// when it opened — the app the user last applied a layout to under this
+    /// collection (see the v0.5 layout-history feature), or `nil` when nothing
+    /// was learned or no window is captured.
+    ///
+    /// The pure ``make(collection:screens:environments:metrics:)`` never sets
+    /// this — resolving a recommendation needs the captured window's identity
+    /// and the stored history, both of which live in the operations layer. So
+    /// ``…/ActivePanelModelUseCase`` builds the geometry through `make` and
+    /// then stamps the recommendation on with ``recommending(_:)``, keeping
+    /// this domain type free of history and I/O. The UI layer highlights and
+    /// focuses this region (a later sub-PR); until then it is carried but not
+    /// yet consumed.
+    public let recommendedLayoutId: LayoutId?
+
+    public init(
+        rows: [Row],
+        metrics: Metrics = .default,
+        recommendedLayoutId: LayoutId? = nil
+    ) {
         self.rows = rows
         self.metrics = metrics
+        self.recommendedLayoutId = recommendedLayoutId
+    }
+
+    /// A copy of this model recommending `layoutId` (or nothing when `nil`).
+    /// The operations layer resolves the recommendation after building the
+    /// geometry, so the pure `make` stays independent of history and I/O.
+    public func recommending(_ layoutId: LayoutId?) -> MiniaturePanelModel {
+        MiniaturePanelModel(rows: rows, metrics: metrics, recommendedLayoutId: layoutId)
     }
 
     /// The panel's structural geometry: how spaces scale into miniatures

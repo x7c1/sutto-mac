@@ -94,12 +94,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // stacks and the keyboard navigator alike.
         let panelMetrics = PanelMetrics.structural
 
+        // Layout history (v0.5): remembers, per Space Collection, which
+        // layout the user last applied to each app + window title, so the
+        // panel can recommend it next time. The file sits next to the
+        // collection files; the concrete SHA-256 key hasher lives in the
+        // infra layer (CryptoKit) and is injected so the domain rule stays
+        // Foundation-only. Loaded lazily on the first recommendation lookup
+        // (panel open), like the GNOME controller defers its history I/O.
+        let layoutHistory = LayoutHistoryUseCase(
+            repository: FileLayoutHistoryRepository(
+                directory: FileSpaceCollectionRepository.defaultDirectory()
+            ),
+            hashingWith: LayoutHistoryKeyHashing.sha256
+        )
+
         let panelModel = ActivePanelModelUseCase(
             repository: collections,
             preferences: preferences,
             screens: screens,
             environment: monitorEnvironment,
-            metrics: panelMetrics
+            metrics: panelMetrics,
+            session: targetSession,
+            history: layoutHistory
         )
 
         // Shared by the panel and the settings window so both open at the
@@ -123,6 +139,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         on display \(event.displayKey, privacy: .public)
                         """)
                 placement.place(event.layout, onDisplayKey: event.displayKey)
+                // Record the applied layout against the window captured for
+                // this opening, scoped to the collection the panel is showing
+                // — the same active-collection resolution the panel model
+                // uses — so the next opening can recommend it. The recorder
+                // skips (and logs) when there is nothing to key on.
+                layoutHistory.recordAppliedLayout(
+                    event.layout.id,
+                    to: targetSession.targetIdentity(),
+                    in: collections.activeCollection(
+                        activeId: preferences.activeCollectionId(),
+                        screens: screens.screens()
+                    )?.id
+                )
             },
             position: panelPosition,
             session: targetSession
