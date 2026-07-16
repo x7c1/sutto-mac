@@ -81,6 +81,8 @@ public final class EdgeTriggerUseCase {
     private let dwellTimer: any Scheduling
     private let throttle: any Scheduling
     private let hideTimer: any Scheduling
+    private let isGateOpen: () -> Bool
+    private let onGateClosed: () -> Void
     private var policy: EdgeTriggerPolicy
     private let logger = Logger(
         subsystem: "io.github.x7c1.SuttoMac", category: "edge-trigger")
@@ -110,6 +112,13 @@ public final class EdgeTriggerUseCase {
     /// Whether a throttle window is currently open (a flush is scheduled).
     private var throttleCoolingDown = false
 
+    /// - Parameters:
+    ///   - isGateOpen: whether the licensing gate permits showing the panel.
+    ///     Reads the cached verdict only (``LicenseGate/isOpen()``); it must
+    ///     not touch the network.
+    ///   - onGateClosed: called instead of showing when a `.showPanel` effect
+    ///     is blocked by a closed gate — the composition root points it at the
+    ///     licensing entry point (Settings).
     public init(
         drags: any DragObserving,
         windows: any WindowControlling,
@@ -118,6 +127,8 @@ public final class EdgeTriggerUseCase {
         dwellTimer: any Scheduling,
         throttle: any Scheduling,
         hideTimer: any Scheduling,
+        isGateOpen: @escaping () -> Bool,
+        onGateClosed: @escaping () -> Void,
         policy: EdgeTriggerPolicy = EdgeTriggerPolicy()
     ) {
         self.drags = drags
@@ -127,6 +138,8 @@ public final class EdgeTriggerUseCase {
         self.dwellTimer = dwellTimer
         self.throttle = throttle
         self.hideTimer = hideTimer
+        self.isGateOpen = isGateOpen
+        self.onGateClosed = onGateClosed
         self.policy = policy
     }
 
@@ -300,6 +313,20 @@ public final class EdgeTriggerUseCase {
         case .cancelHideTimer:
             hideTimer.cancel()
         case let .showPanel(point):
+            // The second of the two licensing-gate seams (the other is
+            // PanelToggleUseCase), guarding the moment the edge trigger would
+            // reveal the panel — the GNOME `showMainPanel` return guard. The
+            // gate is checked here, right before the show, rather than in the
+            // UI's panel, so Operations decides and the UI merely obeys and so
+            // LayoutPanel.show() stays reusable by ungated callers (the
+            // settings anchor). When closed, the panel is not shown and
+            // onGateClosed is invoked; the dwell/timer/drag state is left
+            // untouched, so the interaction unwinds through its normal
+            // drag-ended path with no panel ever appearing.
+            guard isGateOpen() else {
+                onGateClosed()
+                return
+            }
             // The panel then dismisses on its own terms (auto-hide once the
             // cursor leaves it, or a click outside) — no suppression needed.
             panel.show(at: point)
