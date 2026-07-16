@@ -160,31 +160,33 @@ public final class AXWindowController: WindowControlling {
     }
 
     private func position(of window: AXUIElement) -> CGPoint? {
+        guard let value = axValue(of: window, attribute: positionAttribute) else { return nil }
         var point = CGPoint.zero
-        guard axValue(of: window, attribute: positionAttribute, type: .cgPoint, into: &point)
-        else { return nil }
+        guard AXValueGetValue(value, .cgPoint, &point) else { return nil }
         return point
     }
 
     private func size(of window: AXUIElement) -> CGSize? {
+        guard let value = axValue(of: window, attribute: sizeAttribute) else { return nil }
         var size = CGSize.zero
-        guard axValue(of: window, attribute: sizeAttribute, type: .cgSize, into: &size)
-        else { return nil }
+        guard AXValueGetValue(value, .cgSize, &size) else { return nil }
         return size
     }
 
-    private func axValue<T>(
-        of window: AXUIElement,
-        attribute: CFString,
-        type: AXValueType,
-        into destination: inout T
-    ) -> Bool {
+    /// The `AXValue` stored at `attribute`, or `nil` when the attribute is
+    /// missing or is not an `AXValue`. Callers extract the concrete
+    /// `CGPoint`/`CGSize` with `AXValueGetValue`, so the destination pointer
+    /// always has a concrete, reference-free type — passing a generic `inout T`
+    /// here would form a raw pointer to a possibly-reference-holding value.
+    private func axValue(of window: AXUIElement, attribute: CFString) -> AXValue? {
         var value: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(window, attribute, &value)
         guard result == .success, let value, CFGetTypeID(value) == AXValueGetTypeID() else {
-            return false
+            return nil
         }
-        return AXValueGetValue(value as! AXValue, type, &destination)
+        // Safe: the type id was checked above; AXValue has no Swift
+        // conditional-cast support, so this is the canonical downcast.
+        return (value as! AXValue)
     }
 
     private func setPosition(_ position: CGPoint, of window: AXUIElement) {
