@@ -376,6 +376,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// backend is live. Until then it points at a non-resolving host, so every
     /// activate/validate returns `.noResponse` — which, by the fail-open
     /// policy, leaves a valid device unlocked and lets a trial count locally.
+    ///
+    /// `.invalid` is not a typo: it is the top-level domain RFC 2606 / RFC 6761
+    /// reserve as guaranteed never to resolve, so the request fails at DNS
+    /// without a packet leaving the machine — a deliberately unreachable
+    /// placeholder, and a cleaner stand-in for "no backend" than a real domain
+    /// like `example.com`, which would actually be contacted on every launch.
     private static let licenseApiBaseURL = URL(string: "https://license.sutto.invalid")!
 
     /// This device's provisional identity for activation.
