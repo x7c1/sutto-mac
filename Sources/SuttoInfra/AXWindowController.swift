@@ -35,6 +35,7 @@ public final class AXWindowController: WindowControlling {
     private let focusedWindowAttribute = "AXFocusedWindow" as CFString
     private let positionAttribute = "AXPosition" as CFString
     private let sizeAttribute = "AXSize" as CFString
+    private let titleAttribute = "AXTitle" as CFString
 
     private let logger = Logger(
         subsystem: "io.github.x7c1.SuttoMac", category: "placement")
@@ -44,6 +45,19 @@ public final class AXWindowController: WindowControlling {
     public func captureFocusedWindow() -> TargetWindow? {
         guard let window = focusedWindow() else { return nil }
         return AXTargetWindow(element: window)
+    }
+
+    public func identity(of window: TargetWindow) -> WindowIdentity {
+        // Bundle identifier from the frontmost application: this is read in
+        // the same synchronous step as the capture (see PanelTargetSession),
+        // so it names the app that owns the just-captured focused window.
+        let bundleIdentifier = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        if bundleIdentifier == nil {
+            logger.notice(
+                "frontmost application has no bundle identifier; layout history will skip this window")
+        }
+        let title = element(of: window).flatMap(title(of:))
+        return WindowIdentity(bundleIdentifier: bundleIdentifier, title: title)
     }
 
     public func frame(of window: TargetWindow) -> PixelRect? {
@@ -130,6 +144,20 @@ public final class AXWindowController: WindowControlling {
     }
 
     // MARK: - AX attribute plumbing
+
+    /// The window's `AXTitle`, or `nil` when the attribute cannot be read.
+    /// Unlike position/size this is a plain `CFString`, not an `AXValue`, so
+    /// it is copied and bridged directly (same read as the e2e AX client).
+    private func title(of window: AXUIElement) -> String? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(window, titleAttribute, &value)
+        guard result == .success, let title = value as? String else {
+            logger.error(
+                "could not read the captured window's title (AXError \(result.rawValue, privacy: .public))")
+            return nil
+        }
+        return title
+    }
 
     private func position(of window: AXUIElement) -> CGPoint? {
         var point = CGPoint.zero

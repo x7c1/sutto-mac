@@ -26,6 +26,19 @@ public protocol WindowControlling {
     /// pass it back to ``frame(of:)`` and ``applyFrame(_:to:)``.
     func captureFocusedWindow() -> TargetWindow?
 
+    /// The identity — frontmost app bundle identifier and window title — of a
+    /// captured `window`, as a value snapshot. Read once, right after
+    /// ``captureFocusedWindow()``, so the values name the target at capture
+    /// time and stay fixed for the rest of the opening even if the window's
+    /// title later changes.
+    ///
+    /// Kept separate from ``captureFocusedWindow()`` on purpose: capturing a
+    /// window (for positioning and placement) and reading who owns it (for
+    /// layout history) are distinct concerns, and only the panel session
+    /// needs the latter. Either field of the returned ``WindowIdentity`` is
+    /// `nil` when it cannot be read; this never fails capture.
+    func identity(of window: TargetWindow) -> WindowIdentity
+
     /// The current frame of a captured `window`, in AX coordinates, or
     /// `nil` when the frame cannot be read.
     func frame(of window: TargetWindow) -> PixelRect?
