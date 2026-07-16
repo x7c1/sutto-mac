@@ -8,26 +8,34 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     private let permission: AccessibilityPermissionUseCase
     private let edgeTiling: EdgeTilingCoexistenceUseCase
     private let permissionStatusMenuItem: NSMenuItem
+    private let licenseStatusMenuItem: NSMenuItem
     private let edgeTilingWarningItem: NSMenuItem
     private let edgeTilingWarningSeparator: NSMenuItem
     private let onTogglePanel: () -> Void
     private let onOpenSettings: () -> Void
     private let onShowEdgeTilingGuidance: () -> Void
+    /// The current license status line, shared with the License settings pane
+    /// through ``SuttoOperations/LicensePresentation`` so the menu and the pane
+    /// never disagree. Read fresh whenever the menu opens.
+    private let licenseStatusText: () -> String
 
     public init(
         permission: AccessibilityPermissionUseCase,
         edgeTiling: EdgeTilingCoexistenceUseCase,
+        licenseStatusText: @escaping () -> String,
         onTogglePanel: @escaping () -> Void,
         onOpenSettings: @escaping () -> Void,
         onShowEdgeTilingGuidance: @escaping () -> Void
     ) {
         self.permission = permission
         self.edgeTiling = edgeTiling
+        self.licenseStatusText = licenseStatusText
         self.onTogglePanel = onTogglePanel
         self.onOpenSettings = onOpenSettings
         self.onShowEdgeTilingGuidance = onShowEdgeTilingGuidance
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         permissionStatusMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        licenseStatusMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         edgeTilingWarningItem = NSMenuItem(
             title: "⚠︎ macOS window tiling is on — fix…",
             action: nil,
@@ -39,6 +47,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         configureButton()
         statusItem.menu = makeMenu()
         refreshPermissionStatus()
+        refreshLicenseStatus()
         refreshEdgeTilingWarning()
     }
 
@@ -46,6 +55,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 
     public func menuWillOpen(_ menu: NSMenu) {
         refreshPermissionStatus()
+        refreshLicenseStatus()
         refreshEdgeTilingWarning()
     }
 
@@ -72,6 +82,10 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func showEdgeTilingGuidance() {
         onShowEdgeTilingGuidance()
+    }
+
+    @objc private func buyLicense() {
+        LicensePurchaseLink.open()
     }
 
     // MARK: - Private
@@ -106,6 +120,21 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         // Auto-enablement disables this item because it has no action,
         // which is what we want for a status-only row.
         menu.addItem(permissionStatusMenuItem)
+
+        // Licensing (v0.6): a status-only line (same no-action, auto-disabled
+        // shape as the permission row) followed by a purchase link. The status
+        // wording is the shared LicensePresentation, so this reads identically
+        // to the License settings tab. "Buy License…" opens the checkout in the
+        // browser; Settings — where a key is activated — stays reachable through
+        // the item below, deliberately outside the gate (design decision #11).
+        menu.addItem(licenseStatusMenuItem)
+        let buyLicenseItem = NSMenuItem(
+            title: "Buy License…",
+            action: #selector(buyLicense),
+            keyEquivalent: ""
+        )
+        buyLicenseItem.target = self
+        menu.addItem(buyLicenseItem)
         menu.addItem(.separator())
 
         // Discoverable alternative to the global shortcut, sharing its
@@ -148,5 +177,9 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         case .denied:
             permissionStatusMenuItem.title = "Accessibility: Not Granted"
         }
+    }
+
+    private func refreshLicenseStatus() {
+        licenseStatusMenuItem.title = licenseStatusText()
     }
 }

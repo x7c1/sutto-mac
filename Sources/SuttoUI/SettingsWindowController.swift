@@ -21,6 +21,7 @@ import SuttoOperations
 public final class SettingsWindowController {
     private let layoutsPane: LayoutsSettingsPane
     private let shortcutsPane: ShortcutsSettingsPane
+    private let licensePane: LicenseSettingsPane
     private let position: PanelPositionUseCase
     private let session: PanelTargetSession
 
@@ -41,6 +42,7 @@ public final class SettingsWindowController {
         collections: CollectionSettingsUseCase,
         layoutImport: LayoutImportController,
         shortcut: PanelShortcutUseCase,
+        license: LicenseGate,
         position: PanelPositionUseCase,
         session: PanelTargetSession
     ) {
@@ -49,9 +51,13 @@ public final class SettingsWindowController {
             layoutImport: layoutImport
         )
         shortcutsPane = ShortcutsSettingsPane(shortcut: shortcut)
+        licensePane = LicenseSettingsPane(license: license)
         self.position = position
         self.session = session
         layoutsPane.onContentSizeChanged = { [weak self] in
+            self?.sizeWindowToFitSelectedTab(animated: false)
+        }
+        licensePane.onContentSizeChanged = { [weak self] in
             self?.sizeWindowToFitSelectedTab(animated: false)
         }
     }
@@ -114,6 +120,25 @@ public final class SettingsWindowController {
         window.makeKeyAndOrderFront(nil)
     }
 
+    /// Shows the settings window on a specific tab, overriding the remembered
+    /// selection for this opening. Used by the licensing gate to land a locked
+    /// user straight on the License tab (design decision #11); the selection is
+    /// then persisted like any other, so it also becomes the next remembered
+    /// tab. ``present()`` (no argument) keeps opening on the remembered tab.
+    public func present(selecting tab: SettingsTab) {
+        // Create the window (and its tab controller) if this is the first open,
+        // so the selection below has a controller to act on.
+        let window = self.window ?? makeWindow()
+        self.window = window
+        if let tabController, let index = SettingsTab.allCases.firstIndex(of: tab) {
+            // Setting the index fires the tab-controller delegate, which sets
+            // the title, persists the selection, and refits — the same path a
+            // toolbar click takes.
+            tabController.selectedTabViewItemIndex = index
+        }
+        present()
+    }
+
     /// Reactivates the app that was frontmost when settings opened, then
     /// forgets it. Called from the window delegate on close so an accessory
     /// app does not linger as the frontmost app once its only window is
@@ -136,6 +161,7 @@ public final class SettingsWindowController {
     private func refresh() {
         layoutsPane.refresh()
         shortcutsPane.refresh()
+        licensePane.refresh()
         sizeWindowToFitSelectedTab(animated: false)
     }
 
@@ -228,6 +254,7 @@ public final class SettingsWindowController {
         switch tab {
         case .layouts: return layoutsPane
         case .shortcuts: return shortcutsPane
+        case .license: return licensePane
         }
     }
 }

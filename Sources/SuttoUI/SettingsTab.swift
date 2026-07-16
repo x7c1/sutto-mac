@@ -9,7 +9,12 @@ import AppKit
 /// toolbar item, selection persistence, and window sizing follow from the
 /// case list. A future License tab, for example, slots in as
 /// `case license` plus one pane class.
-enum SettingsTab: String, CaseIterable {
+///
+/// Public only so the composition root can name a tab to open through
+/// ``SettingsWindowController/present(selecting:)`` (the licensing gate lands a
+/// locked user on ``license``); the title/icon/persistence members below stay
+/// internal — they are the window's own concern.
+public enum SettingsTab: String, CaseIterable {
     /// Collection list, space preview, and import — the analogue of the
     /// GNOME preferences' Spaces page.
     case layouts
@@ -17,11 +22,16 @@ enum SettingsTab: String, CaseIterable {
     /// The panel-toggle shortcut capture field and its reset.
     case shortcuts
 
+    /// License status, key activation, purchase, and clearing — the commercial
+    /// gate's settings surface (v0.6).
+    case license
+
     /// The toolbar label, and the window title while the tab is selected.
     var title: String {
         switch self {
         case .layouts: return "Layouts"
         case .shortcuts: return "Shortcuts"
+        case .license: return "License"
         }
     }
 
@@ -30,6 +40,7 @@ enum SettingsTab: String, CaseIterable {
         switch self {
         case .layouts: return "square.grid.2x2"
         case .shortcuts: return "keyboard"
+        case .license: return "checkmark.seal"
         }
     }
 

@@ -164,6 +164,26 @@ public final class LicenseGate {
         persist(state)
     }
 
+    /// Clears the activated license from *local* storage, returning the device
+    /// to its trial (or to `expired` if the trial is already spent).
+    ///
+    /// This is the local half of "Deactivate": it drops the stored
+    /// ``LicenseState/record`` and recomputes the status from the trial —
+    /// `trial` while days remain, `expired` once the 30 days are used up — then
+    /// persists. It never fabricates a worse verdict than the trial supports
+    /// (design decision #8): a user who clears a license mid-trial keeps the
+    /// days they had left.
+    ///
+    /// TODO(sub-PR B1): also release this device's activation on the backend so
+    /// the seat is freed toward the device limit. Until the real API is wired
+    /// that call has no endpoint, so this stays a local-only clear.
+    public func clearLicense() {
+        var state = loadedState()
+        state.record = nil
+        state.updateStatus(state.trial.isExpired ? .expired : .trial)
+        persist(state)
+    }
+
     /// The in-memory aggregate, loading it from the repository on first use.
     private func loadedState() -> LicenseState {
         if let cachedState {

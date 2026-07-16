@@ -27,6 +27,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Assigned once during launch wiring; the gate callbacks call it lazily,
     /// so it is always set by the time a user could trigger a gated action.
     private var presentSettings: (() -> Void)?
+    /// Opens Settings on the License tab — the entry point a locked user needs.
+    /// Assigned once during launch wiring, alongside ``presentSettings``.
+    private var presentLicenseSettings: (() -> Void)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // LSUIElement in Info.plist already keeps the app out of the Dock;
@@ -210,6 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 )
             ),
             shortcut: registerGlobalShortcut(with: togglePanel, preferences: preferences),
+            license: licenseGate,
             position: panelPosition,
             session: targetSession
         )
@@ -225,6 +229,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // point a locked user needs to activate or purchase (design decision
         // #11: Settings stays reachable while the gate is closed).
         self.presentSettings = presentSettings
+
+        // The licensing-gate entry point opens Settings straight on the License
+        // tab, so a locked user lands on activation/purchase rather than the
+        // remembered tab. Same ensure-on-open as the plain present.
+        self.presentLicenseSettings = {
+            presetGenerator.ensurePresetsForCurrentMonitors()
+            settings.present(selecting: .license)
+        }
 
         // ⌘, while the panel is open jumps to settings (GNOME behavior,
         // with the mac-conventional combo).
@@ -250,6 +262,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItemController = StatusItemController(
             permission: permission,
             edgeTiling: edgeTilingCoexistence,
+            // The menu's license line shares the settings pane's wording, read
+            // fresh from the gate each time the menu opens.
+            licenseStatusText: { [weak licenseGate] in
+                guard let licenseGate else { return "" }
+                return LicensePresentation.statusText(for: licenseGate.state(), now: Date())
+            },
             onTogglePanel: { togglePanel.toggle() },
             onOpenSettings: presentSettings,
             onShowEdgeTilingGuidance: {
@@ -345,18 +363,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Opens the entry point a user reaches when the licensing gate refuses a
-    /// panel-show — where they activate a key or start a purchase. For now it
-    /// opens the Settings window on its default tab; Settings deliberately
-    /// stays outside the gate so it is reachable while locked (design decision
-    /// #11).
-    ///
-    /// TODO(sub-PR ⑤): once the License settings tab exists, select it here so
-    /// a locked user lands directly on activation/purchase. The seam is a
-    /// `present(selecting:)`-style entry on ``SettingsWindowController`` (its
-    /// tab list is already `CaseIterable` and gains a `.license` case); until
-    /// then the default tab is an acceptable placeholder.
+    /// panel-show — the License settings tab, where they activate a key or
+    /// start a purchase. Settings deliberately stays outside the gate so it is
+    /// reachable while locked (design decision #11).
     private func openLicensingEntryPoint() {
-        presentSettings?()
+        presentLicenseSettings?()
     }
 
     /// The license backend root the API client posts to.
