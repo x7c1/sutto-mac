@@ -324,4 +324,103 @@ import Testing
         #expect(second.frame.maxY <= first.frame.y + 0.001)
         #expect(space.displays.map(\.isConnected) == [true, false])
     }
+
+    // MARK: - Layout-history recommendation
+
+    /// A use case wired with a captured session and the history use case, the
+    /// way the composition root wires the panel (sub-PR ④).
+    private func makeUseCase(
+        session: PanelTargetSession,
+        history: LayoutHistoryUseCase
+    ) -> ActivePanelModelUseCase {
+        ActivePanelModelUseCase(
+            repository: repository,
+            preferences: preferences,
+            screens: screens,
+            environment: MonitorEnvironmentUseCase(
+                screens: screens, repository: environmentRepository, preferences: preferences),
+            session: session,
+            history: history
+        )
+    }
+
+    /// A ``PanelTargetSession`` that has already captured a window with the
+    /// given identity, matching the panel's capture-before-model order.
+    private func capturedSession(bundle: String, title: String) -> PanelTargetSession {
+        let session = PanelTargetSession(
+            windows: StubWindowController(
+                identity: WindowIdentity(bundleIdentifier: bundle, title: title)))
+        session.capture()
+        return session
+    }
+
+    private func makeHistory() -> LayoutHistoryUseCase {
+        LayoutHistoryUseCase(
+            repository: InMemoryLayoutHistoryRepository(),
+            hashingWith: { $0 },
+            now: { Date(timeIntervalSince1970: 1_700_000_000) })
+    }
+
+    /// The operations layer resolves the recommendation for the captured
+    /// window under the active collection and stamps it on the model — the
+    /// ④ half of the feature; the UI consumes it in ⑤.
+    @Test func stampsTheRecommendedLayoutOnTheModel() throws {
+        let collection = makeCollection(groupName: "editor")
+        try repository.saveCustomCollections([collection])
+        preferences.storedActiveCollectionId = collection.id
+
+        let session = capturedSession(bundle: "com.apple.TextEdit", title: "notes.txt")
+        let history = makeHistory()
+        let recommended = LayoutId.generate()
+        history.recordAppliedLayout(
+            recommended,
+            to: WindowIdentity(bundleIdentifier: "com.apple.TextEdit", title: "notes.txt"),
+            in: collection.id)
+
+        let model = makeUseCase(session: session, history: history).panelModel()
+
+        #expect(model.recommendedLayoutId == recommended)
+    }
+
+    /// Scoped to the active collection: a layout learned under one collection
+    /// is not recommended while another is active.
+    @Test func doesNotStampARecommendationFromAnotherCollection() throws {
+        let collection = makeCollection(groupName: "editor")
+        try repository.saveCustomCollections([collection])
+        preferences.storedActiveCollectionId = collection.id
+
+        let session = capturedSession(bundle: "com.apple.TextEdit", title: "notes.txt")
+        let history = makeHistory()
+        history.recordAppliedLayout(
+            LayoutId.generate(),
+            to: WindowIdentity(bundleIdentifier: "com.apple.TextEdit", title: "notes.txt"),
+            in: CollectionId.generate())
+
+        let model = makeUseCase(session: session, history: history).panelModel()
+
+        #expect(model.recommendedLayoutId == nil)
+    }
+
+    /// A never-seen app stamps nothing, and the model still renders normally.
+    @Test func stampsNoRecommendationForAnUnknownWindow() throws {
+        let collection = makeCollection(groupName: "editor")
+        try repository.saveCustomCollections([collection])
+        preferences.storedActiveCollectionId = collection.id
+
+        let session = capturedSession(bundle: "com.unknown.App", title: "whatever")
+        let model = makeUseCase(session: session, history: makeHistory()).panelModel()
+
+        #expect(model.recommendedLayoutId == nil)
+        #expect(renderedLabels(model) == [["editor layout"]])
+    }
+
+    /// The plain use case (no session, no history — the settings preview
+    /// reuses it) stamps no recommendation.
+    @Test func stampsNoRecommendationWithoutHistory() throws {
+        let collection = makeCollection(groupName: "editor")
+        try repository.saveCustomCollections([collection])
+        preferences.storedActiveCollectionId = collection.id
+
+        #expect(makeUseCase().panelModel().recommendedLayoutId == nil)
+    }
 }

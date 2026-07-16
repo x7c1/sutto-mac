@@ -102,6 +102,25 @@ enum PanelPalette {
     /// concurrent hover (see `LayoutRegionButton`).
     static let regionBorderFocused = NSColor.white.withAlphaComponent(0.90)
 
+    /// The fill of the region the layout history recommends (v0.5). Ported
+    /// from the GNOME selected-layout color (`SELECTED_BG_COLOR`,
+    /// rgba(100,150,250,0.7) in `miniature-display.ts`): a blue that reads as
+    /// "suggested" and stays clearly distinct from the gray normal/hover
+    /// fills. Keyboard focus layers ``regionBorderFocused`` on top rather than
+    /// sharing this color, so the recommended region and the focused region
+    /// stay separately legible even when the panel opens focused on its
+    /// recommendation. The exact tint is an initial pass, expected to be
+    /// tuned by on-device review.
+    static let regionBackgroundRecommended = NSColor(
+        srgbRed: 100 / 255, green: 150 / 255, blue: 250 / 255, alpha: 0.7)
+
+    /// The border rimming a recommended region (v0.5): the same blue at full
+    /// strength, so the recommendation reads even against a busy backdrop when
+    /// it is not the focused region. Focus still overrides it with the
+    /// brighter, thicker ``regionBorderFocused``.
+    static let regionBorderRecommended = NSColor(
+        srgbRed: 100 / 255, green: 150 / 255, blue: 250 / 255, alpha: 0.9)
+
     /// The menu bar strip marking the primary display (GNOME miniature
     /// display's rgba(200,200,200,0.9) — the Ubuntu Displays convention).
     static let menuBarStrip = NSColor(

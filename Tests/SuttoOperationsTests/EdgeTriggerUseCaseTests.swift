@@ -49,6 +49,10 @@ import Testing
             captureSucceeds ? target : nil
         }
 
+        func identity(of window: TargetWindow) -> WindowIdentity {
+            WindowIdentity(bundleIdentifier: nil, title: nil)
+        }
+
         func frame(of window: TargetWindow) -> PixelRect? { currentFrame }
 
         func applyFrame(_ frame: PixelRect, to window: TargetWindow) -> Bool { true }

@@ -20,6 +20,9 @@ private final class WindowControllerStub: WindowControlling {
     func captureFocusedWindow() -> TargetWindow? {
         focusedFrame == nil ? nil : target
     }
+    func identity(of window: TargetWindow) -> WindowIdentity {
+        WindowIdentity(bundleIdentifier: nil, title: nil)
+    }
     func frame(of window: TargetWindow) -> PixelRect? { focusedFrame }
     func applyFrame(_ frame: PixelRect, to window: TargetWindow) -> Bool { true }
 }

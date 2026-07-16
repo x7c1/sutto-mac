@@ -269,6 +269,79 @@ import Testing
         #expect(event.displayKey == "1")
     }
 
+    // MARK: - Recommended layout (initial focus + highlight source)
+
+    /// Builds a model directly (not just the navigator) so a test can read a
+    /// concrete layout id out of it and ask the navigator to resolve it.
+    private func makeModel(
+        rows: [[Space]], screens: [Screen] = ScreenFixtures.single
+    ) -> MiniaturePanelModel {
+        let collection = SpaceCollection(
+            id: .generate(), name: "Test",
+            rows: rows.map { SpacesRow(spaces: $0) }
+        )
+        return MiniaturePanelModel.make(collection: collection, screens: screens)
+    }
+
+    @Test func resolvesTheRecommendedLayoutToItsRegion() {
+        let model = makeModel(rows: [[makeSpace(displays: ["0": makeQuartersGroup()])]])
+        let navigator = MiniaturePanelNavigator(model: model)
+        // The bottom-right quarter (region index 3).
+        let layoutId = model.rows[0].spaces[0].displays[0].regions[3].layout.id
+
+        #expect(
+            navigator.recommendedCoordinates(for: layoutId)
+                == [Coordinate(row: 0, space: 0, display: 0, region: 3)])
+    }
+
+    @Test func hasNoRecommendedCoordinatesWithoutARecommendation() {
+        let navigator = makeNavigator(rows: [[makeSpace(displays: ["0": makeGroup()])]])
+
+        #expect(navigator.recommendedCoordinates(for: nil).isEmpty)
+    }
+
+    @Test func hasNoRecommendedCoordinatesWhenNoRegionMatches() {
+        let navigator = makeNavigator(rows: [[makeSpace(displays: ["0": makeGroup()])]])
+
+        #expect(navigator.recommendedCoordinates(for: .generate()).isEmpty)
+    }
+
+    /// A layout assigned to more than one connected display is recommended in
+    /// every place it appears, ordered top-left first — the highlight marks
+    /// them all and the first is the initial focus.
+    @Test func recommendsEveryConnectedMatchTopLeftFirst() {
+        // The same group instance on both displays shares layout ids.
+        let group = makeGroup()
+        let model = makeModel(
+            rows: [[makeSpace(displays: ["0": group, "1": group])]],
+            screens: ScreenFixtures.secondaryRight
+        )
+        let navigator = MiniaturePanelNavigator(model: model)
+        let leftHalfId = model.rows[0].spaces[0].displays[0].regions[0].layout.id
+
+        #expect(
+            navigator.recommendedCoordinates(for: leftHalfId) == [
+                Coordinate(row: 0, space: 0, display: 0, region: 0),
+                Coordinate(row: 0, space: 0, display: 1, region: 0),
+            ])
+    }
+
+    /// A recommended layout that only lives on a disconnected display is not
+    /// highlighted or focused — such regions are never traversal targets.
+    @Test func excludesDisconnectedDisplaysFromRecommendations() {
+        let group = makeGroup()
+        let model = makeModel(
+            rows: [[makeSpace(displays: ["0": group, "1": group])]],
+            screens: ScreenFixtures.single
+        )
+        let navigator = MiniaturePanelNavigator(model: model)
+        let leftHalfId = model.rows[0].spaces[0].displays[0].regions[0].layout.id
+
+        #expect(
+            navigator.recommendedCoordinates(for: leftHalfId)
+                == [Coordinate(row: 0, space: 0, display: 0, region: 0)])
+    }
+
     // MARK: - Empty panel
 
     @Test func anEmptyModelHasNothingToFocus() {

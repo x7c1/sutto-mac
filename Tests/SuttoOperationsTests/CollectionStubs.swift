@@ -99,6 +99,55 @@ final class InMemoryMonitorEnvironmentRepository: MonitorEnvironmentRepository {
     }
 }
 
+/// In-memory ``LayoutHistoryRepository`` for use-case tests: `load()` serves
+/// the scripted history and counts how often it was called (to prove the lazy
+/// load happens once), `save(_:)` records every persisted history and can be
+/// scripted to fail.
+@MainActor
+final class InMemoryLayoutHistoryRepository: LayoutHistoryRepository {
+    var storedHistory: LayoutHistory
+    var saveError: Error?
+    private(set) var loadCount = 0
+    private(set) var savedHistories: [LayoutHistory] = []
+
+    init(history: LayoutHistory = LayoutHistory()) {
+        storedHistory = history
+    }
+
+    func load() -> LayoutHistory {
+        loadCount += 1
+        return storedHistory
+    }
+
+    func save(_ history: LayoutHistory) throws {
+        if let saveError {
+            throw saveError
+        }
+        storedHistory = history
+        savedHistories.append(history)
+    }
+}
+
+/// A ``TargetWindow`` stub the window-controller stub hands back on capture.
+private final class StubTargetWindow: TargetWindow {}
+
+/// ``WindowControlling`` stub with a scriptable identity, so tests that need a
+/// captured ``PanelTargetSession`` can control what the session snapshots.
+@MainActor
+final class StubWindowController: WindowControlling {
+    var scriptedIdentity: WindowIdentity
+    private let target = StubTargetWindow()
+
+    init(identity: WindowIdentity) {
+        scriptedIdentity = identity
+    }
+
+    func captureFocusedWindow() -> TargetWindow? { target }
+    func identity(of window: TargetWindow) -> WindowIdentity { scriptedIdentity }
+    func frame(of window: TargetWindow) -> PixelRect? { nil }
+    func applyFrame(_ frame: PixelRect, to window: TargetWindow) -> Bool { true }
+}
+
 /// ``FileReading`` stub serving canned data or a canned failure.
 @MainActor
 struct StubFileReader: FileReading {

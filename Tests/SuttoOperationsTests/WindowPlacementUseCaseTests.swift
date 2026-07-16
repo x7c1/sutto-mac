@@ -40,6 +40,10 @@ private final class WindowControllerStub: WindowControlling {
         focusedFrame == nil ? nil : target
     }
 
+    func identity(of window: TargetWindow) -> WindowIdentity {
+        WindowIdentity(bundleIdentifier: nil, title: nil)
+    }
+
     func frame(of window: TargetWindow) -> PixelRect? {
         queriedTargets.append(ObjectIdentifier(window))
         return focusedFrame

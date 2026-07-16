@@ -16,6 +16,7 @@ import SuttoDomain
 public final class PanelTargetSession {
     private let windows: WindowControlling
     private var target: TargetWindow?
+    private var identity: WindowIdentity?
 
     public init(windows: WindowControlling) {
         self.windows = windows
@@ -28,7 +29,12 @@ public final class PanelTargetSession {
     /// permission is missing) clears the target, so the subsequent
     /// positioning falls back and placement does nothing.
     public func capture() {
-        target = windows.captureFocusedWindow()
+        let captured = windows.captureFocusedWindow()
+        target = captured
+        // Snapshot the identity in the same synchronous step as the capture,
+        // so bundle identifier and title name the window at capture time and
+        // stay fixed for the opening — matching the one-target invariant.
+        identity = captured.map { windows.identity(of: $0) }
     }
 
     /// The captured window's current frame, in AX coordinates, or `nil`
@@ -36,6 +42,18 @@ public final class PanelTargetSession {
     public func targetFrame() -> PixelRect? {
         guard let target else { return nil }
         return windows.frame(of: target)
+    }
+
+    /// The captured window's identity — bundle identifier and title —
+    /// snapshotted at ``capture()`` time, or `nil` when nothing is captured.
+    ///
+    /// The value is fixed at capture: a later title change on the window
+    /// does not affect it, so layout history records against what the window
+    /// was when the panel opened. Layout history keys on this; a `nil`
+    /// bundle identifier inside the snapshot is the history layer's cue to
+    /// skip recording (decided downstream, not here).
+    public func targetIdentity() -> WindowIdentity? {
+        identity
     }
 
     /// Applies `frame` to the captured window. Returns `false` when nothing
