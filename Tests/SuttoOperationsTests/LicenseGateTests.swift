@@ -235,8 +235,14 @@ import Testing
         #expect(repository.savedStates.last?.record == activated)
     }
 
-    @Test func activationRejectionDowngradesAndPersists() async {
-        let repository = InMemoryLicenseRepository(state: .freshTrial)
+    /// The key regression: a rejected activation while in trial must not
+    /// destroy the trial. The bad key is reported through the returned
+    /// outcome, but the status stays `trial`, the gate stays open, and nothing
+    /// is written (diverges from GNOME's `setStatus('invalid')`; design
+    /// decision #8).
+    @Test func activationRejectionDoesNotDestroyAnInProgressTrial() async {
+        let repository = InMemoryLicenseRepository(
+            state: trialState(daysUsed: 3, lastUsedDate: "2026-07-15"))
         let apiClient = StubLicenseApiClient()
         apiClient.activationOutcome = .rejected(.invalidKey)
         let gate = makeGate(repository: repository, apiClient: apiClient)
@@ -244,9 +250,25 @@ import Testing
         let outcome = await gate.activate(key: "BAD-KEY")
 
         #expect(outcome == .rejected(.invalidKey))
-        #expect(gate.state().status == .invalid)
-        #expect(!gate.isOpen())
-        #expect(repository.savedStates.last?.status == .invalid)
+        #expect(gate.state().status == .trial)
+        #expect(gate.isOpen())
+        #expect(repository.savedStates.isEmpty)
+    }
+
+    /// A rejected activation on an already-valid device does not downgrade it
+    /// either — only `validateOnLaunch` downgrades a valid device.
+    @Test func activationRejectionDoesNotDowngradeAValidDevice() async {
+        let repository = InMemoryLicenseRepository(state: validState())
+        let apiClient = StubLicenseApiClient()
+        apiClient.activationOutcome = .rejected(.expired)
+        let gate = makeGate(repository: repository, apiClient: apiClient)
+
+        let outcome = await gate.activate(key: "SOME-KEY")
+
+        #expect(outcome == .rejected(.expired))
+        #expect(gate.state().status == .valid)
+        #expect(gate.isOpen())
+        #expect(repository.savedStates.isEmpty)
     }
 
     /// A no-answer activation is retryable: it changes nothing and writes

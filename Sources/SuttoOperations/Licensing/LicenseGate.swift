@@ -79,25 +79,29 @@ public final class LicenseGate {
     /// Activates `key` for this device and, on success, stores the returned
     /// record as `valid`.
     ///
-    /// The port of the GNOME `LicenseOperations.activate`. An authoritative
-    /// rejection downgrades the status (via
-    /// ``SuttoDomain/AuthoritativeRejection/resultingStatus``) and is
-    /// persisted, exactly as GNOME's `setStatus` on an activation error; a
-    /// no-answer changes nothing and is retryable. The outcome is returned so
-    /// the UI can message the result.
+    /// The port of the GNOME `LicenseOperations.activate`, but only its
+    /// success path changes state: an authoritative rejection is reported to
+    /// the caller through the returned ``ActivationOutcome`` and never touches
+    /// the stored status, and a no-answer is retryable and changes nothing.
     @discardableResult
     public func activate(key: String) async -> ActivationOutcome {
         let outcome = await apiClient.activate(key: key, device: device)
-        var state = loadedState()
 
         switch outcome {
         case .activated(let record):
+            var state = loadedState()
             state.record = record
             state.updateStatus(.valid)
             persist(state)
-        case .rejected(let rejection):
-            state.updateStatus(rejection.resultingStatus)
-            persist(state)
+        case .rejected:
+            // A failed activation attempt reports a bad/ineligible key to the
+            // UI via the returned outcome; it must NOT downgrade an existing
+            // entitlement. A trial in progress or a prior valid license stays
+            // intact — only validateOnLaunch (guarded to a currently-valid
+            // device) downgrades. (Diverges from GNOME handleActivationError's
+            // setStatus('invalid'), a latent trial-destruction bug; consistent
+            // with design decision #8.)
+            logger.info("activation rejected; leaving existing status unchanged")
         case .noResponse:
             logger.info("activation had no authoritative answer; leaving status unchanged")
         }
