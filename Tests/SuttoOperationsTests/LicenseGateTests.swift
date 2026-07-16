@@ -287,6 +287,50 @@ import Testing
         #expect(repository.savedStates.isEmpty)
     }
 
+    // MARK: - Clear license (local Deactivate)
+
+    /// Clearing a valid license mid-trial drops the record and returns to the
+    /// trial with the days already used preserved — the gate stays open.
+    @Test func clearReturnsToTrialWhenTrialNotExpired() {
+        let repository = InMemoryLicenseRepository(
+            state: LicenseState(
+                status: .valid,
+                record: LicenseRecord(
+                    licenseKey: "KEY-123", activationId: "ACT-456",
+                    validUntil: t0, lastValidated: t0, status: .valid),
+                trial: TrialState(daysUsed: 5, lastUsedDate: "2026-07-10")))
+        let gate = makeGate(repository: repository, apiClient: StubLicenseApiClient())
+
+        gate.clearLicense()
+
+        #expect(gate.state().status == .trial)
+        #expect(gate.state().record == nil)
+        #expect(gate.state().trial.daysUsed == 5)
+        #expect(gate.isOpen())
+        #expect(repository.savedStates.last?.status == .trial)
+        #expect(repository.savedStates.last?.record == nil)
+    }
+
+    /// Clearing when the trial is already spent lands on `expired`, not a fresh
+    /// trial — clearing must not hand back a trial the device no longer has.
+    @Test func clearBecomesExpiredWhenTrialIsSpent() {
+        let repository = InMemoryLicenseRepository(
+            state: LicenseState(
+                status: .valid,
+                record: LicenseRecord(
+                    licenseKey: "KEY-123", activationId: "ACT-456",
+                    validUntil: t0, lastValidated: t0, status: .valid),
+                trial: TrialState(daysUsed: 30, lastUsedDate: "2026-07-10")))
+        let gate = makeGate(repository: repository, apiClient: StubLicenseApiClient())
+
+        gate.clearLicense()
+
+        #expect(gate.state().status == .expired)
+        #expect(gate.state().record == nil)
+        #expect(!gate.isOpen())
+        #expect(repository.savedStates.last?.status == .expired)
+    }
+
     // MARK: - Lazy load
 
     @Test func doesNotLoadStateAtConstruction() {
