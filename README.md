@@ -25,6 +25,8 @@ A window snapping app for macOS, bringing the [Sutto](https://github.com/x7c1/su
 
 The app lives in the menu bar (no Dock icon). During development the bundle is unsigned, so macOS treats every rebuilt binary as a new app: you have to grant (or re-grant) the Accessibility permission manually under System Settings › Privacy & Security › Accessibility. The onboarding window shown at first launch walks through this. To keep the permission across rebuilds, sign the bundle with a local self-signed certificate via `make run CODESIGN_IDENTITY="..."` — see [Keeping the Accessibility permission across rebuilds](docs/guides/debugging.md#keeping-the-accessibility-permission-across-rebuilds).
 
+Launch at login is opt-in: turn on **Launch Sutto at login** under Sutto's Settings › General, and Sutto registers itself as a login item (listed under System Settings › General › Login Items & Extensions, where it can also be turned off). The registration points at the bundle that is running. For a development build that is `.build/Sutto.app`: `make app` recreates the bundle at the same path, so the registration still points at it after a rebuild, but `make clean` removes it, so launching at login silently fails until the next `make app`. Whether macOS still launches an unsigned, rebuilt bundle from an existing login item is not guaranteed — like the Accessibility permission above, re-check Sutto's Settings › General (and System Settings › Login Items) after rebuilding, and toggle the item off and on if it no longer takes effect.
+
 To watch the app's logs while verifying behavior, see [Debugging and Logging](docs/guides/debugging.md).
 
 ## License
