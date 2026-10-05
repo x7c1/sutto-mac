@@ -199,6 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         let settings = SettingsWindowController(
+            launchAtLogin: LaunchAtLoginUseCase(registrar: SMAppServiceLoginItemRegistrar()),
             collections: CollectionSettingsUseCase(
                 repository: collections,
                 preferences: preferences,

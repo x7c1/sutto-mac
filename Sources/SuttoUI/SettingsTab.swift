@@ -7,14 +7,19 @@ import AppKit
 /// Adding a tab is: add a case here (title + symbol), and teach
 /// `SettingsWindowController.makePane(for:)` to build its pane — the
 /// toolbar item, selection persistence, and window sizing follow from the
-/// case list. A future License tab, for example, slots in as
-/// `case license` plus one pane class.
+/// case list. The General tab, for example, is `case general` plus
+/// ``GeneralSettingsPane``.
 ///
 /// Public only so the composition root can name a tab to open through
 /// ``SettingsWindowController/present(selecting:)`` (the licensing gate lands a
 /// locked user on ``license``); the title/icon/persistence members below stay
 /// internal — they are the window's own concern.
 public enum SettingsTab: String, CaseIterable {
+    /// App-wide behavior such as launching at login. First in toolbar order,
+    /// the macOS convention for a General tab — though not the tab a
+    /// first-time user lands on (see ``restored(from:)``).
+    case general
+
     /// Collection list, space preview, and import — the analogue of the
     /// GNOME preferences' Spaces page.
     case layouts
@@ -29,6 +34,7 @@ public enum SettingsTab: String, CaseIterable {
     /// The toolbar label, and the window title while the tab is selected.
     var title: String {
         switch self {
+        case .general: return "General"
         case .layouts: return "Layouts"
         case .shortcuts: return "Shortcuts"
         case .license: return "License"
@@ -38,6 +44,7 @@ public enum SettingsTab: String, CaseIterable {
     /// The toolbar icon. SF Symbols only — no bundled assets.
     var symbolName: String {
         switch self {
+        case .general: return "gearshape"
         case .layouts: return "square.grid.2x2"
         case .shortcuts: return "keyboard"
         case .license: return "checkmark.seal"
@@ -53,7 +60,8 @@ public enum SettingsTab: String, CaseIterable {
 
     /// The tab to select when the window opens: the remembered one, or
     /// ``layouts`` on first use (the primary surface — it is where the
-    /// GNOME preferences open too).
+    /// GNOME preferences open too), even though ``general`` comes first in
+    /// the toolbar.
     static func restored(from defaults: UserDefaults = .standard) -> SettingsTab {
         defaults.string(forKey: selectedTabDefaultsKey)
             .flatMap(SettingsTab.init(rawValue:)) ?? .layouts
