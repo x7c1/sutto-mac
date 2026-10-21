@@ -92,8 +92,9 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func configureButton() {
         guard let button = statusItem.button else { return }
+        // Mirrors the GNOME version's top bar icon (`view-grid-symbolic`).
         if let image = NSImage(
-            systemSymbolName: "rectangle.split.2x1",
+            systemSymbolName: "square.grid.2x2.fill",
             accessibilityDescription: "Sutto"
         ) {
             image.isTemplate = true
