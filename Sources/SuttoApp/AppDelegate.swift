@@ -74,18 +74,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Licensing gate (v0.6): every panel-show is gated behind a cached
         // license verdict. Assembled here from the file repository (living
         // beside the other *.sutto.json documents), the URLSession-backed API
-        // client, and this device's identity. The gate reads only the cached
-        // verdict — never the network — so an unreachable or vanished backend
-        // never locks out a valid device (the fail-open policy). The two
-        // panel-show seams below (`togglePanel`, `edgeTrigger`) consult it and
-        // count a trial day whenever they actually show the panel, and the
-        // launch pass at the end of this method validates a valid license once.
+        // client, this device's identity, and NWPathMonitor connectivity. The
+        // gate never asks the license server, so an unreachable or vanished
+        // backend never locks out a valid device (the fail-open policy); a
+        // valid device is closed only after 7 days offline, counted from the
+        // last time it was online. The two panel-show seams below
+        // (`togglePanel`, `edgeTrigger`) record the last-online time, consult
+        // the gate, and count a trial day whenever they actually show the
+        // panel, and the launch pass at the end of this method validates a
+        // valid license once while online.
         let licenseGate = LicenseGate(
             repository: FileLicenseRepository(
                 directory: FileSpaceCollectionRepository.defaultDirectory()
             ),
             apiClient: URLSessionLicenseApiClient(baseURL: Self.licenseApiBaseURL),
-            device: Self.provisionalDeviceIdentity()
+            device: Self.provisionalDeviceIdentity(),
+            connectivity: NWPathConnectivityMonitor()
         )
         self.licenseGate = licenseGate
 
@@ -209,7 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hidePanel: { [weak panel] in panel?.hide() },
             // Fail-open if the gate is somehow gone: never lock the user out of
             // their own panel because of a wiring fault.
-            isGateOpen: { [weak licenseGate] in licenseGate?.isOpen() ?? true },
+            isGateOpen: { [weak licenseGate] in licenseGate?.admitsPanelShow() ?? true },
             onGateClosed: { [weak self] in self?.openLicensingEntryPoint() },
             onPanelShown: recordTrialUsage
         )
@@ -283,7 +287,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // fresh from the gate each time the menu opens.
             licenseStatusText: { [weak licenseGate] in
                 guard let licenseGate else { return "" }
-                return LicensePresentation.statusText(for: licenseGate.state(), now: Date())
+                return licenseGate.statusText()
             },
             onTogglePanel: { togglePanel.toggle() },
             onOpenSettings: presentSettings,
@@ -344,7 +348,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Same gate as the shortcut/menu path, checked right before the
             // edge trigger would reveal the panel. Fail-open if the gate is
             // gone, for the same reason as the toggle path.
-            isGateOpen: { [weak licenseGate] in licenseGate?.isOpen() ?? true },
+            isGateOpen: { [weak licenseGate] in licenseGate?.admitsPanelShow() ?? true },
             onGateClosed: { [weak self] in self?.openLicensingEntryPoint() },
             onPanelShown: recordTrialUsage
         )
@@ -364,10 +368,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onboarding.present()
         }
 
+        // Every connectivity change records the last-online time. Going online
+        // can end an exceeded offline limit (and going offline can start the
+        // offline text), so an open Settings window is re-rendered the same way
+        // as for a trial-day change; the gate itself reopens on the next panel
+        // show without a relaunch.
+        licenseGate.watchConnectivity { [weak self] in
+            self?.settingsWindow?.refreshIfVisible()
+        }
+
         // Launch licensing pass (design decision #9), run once here and never
-        // on a timer: a `valid` device attempts a single validate; a no-answer
+        // on a timer: it records the last-online time and, only while online,
+        // a `valid` device attempts a single validate; a no-answer
         // keeps the cached verdict (fail-open), and only an authoritative NO
-        // downgrades. It is a no-op for the other states, so calling it
+        // downgrades. The validate is a no-op for the other states, so calling it
         // unconditionally is safe. No trial day is counted here — that happens
         // when a panel is actually shown (`onPanelShown` above). Off the launch
         // path in a Task since validate is async; the gate wiring above does

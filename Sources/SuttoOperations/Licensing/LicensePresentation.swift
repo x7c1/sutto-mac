@@ -14,10 +14,17 @@ public enum LicensePresentation {
     /// A one-line description of the current gate state, for the settings pane's
     /// status label and the status-menu row.
     ///
-    /// `now` is injected (rather than read here) so the "last verified N days
-    /// ago" text is testable without a real clock, matching the rest of the
-    /// licensing layer.
-    public static func statusText(for state: LicenseState, now: Date) -> String {
+    /// `isOnline` and `now` are injected (rather than read here) so the
+    /// offline-limit and "last verified N days ago" texts are testable without
+    /// a network or a real clock, matching the rest of the licensing layer.
+    public static func statusText(for state: LicenseState, isOnline: Bool, now: Date) -> String {
+        if state.isOfflineTooLong(isOnline: isOnline, now: now) {
+            // The GNOME headline and instruction for this closed state
+            // ("This device has been offline for too long. Reconnect to the
+            // internet to continue."), put in the "state — what to do" form
+            // of the other lines here, since it also fills a status-menu row.
+            return "Offline for too long — reconnect to the internet to keep using Sutto"
+        }
         switch state.status {
         case .trial:
             let days = state.trial.remainingDays

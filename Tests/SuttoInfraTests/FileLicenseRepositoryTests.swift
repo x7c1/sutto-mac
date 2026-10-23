@@ -16,6 +16,10 @@ import Testing
     /// sub-second precision) round-trips the `Date` exactly.
     private let validUntil = Date(timeIntervalSince1970: 1_800_000_000)
     private let lastValidated = Date(timeIntervalSince1970: 1_700_000_000)
+    private let lastOnlineAt = Date(timeIntervalSince1970: 1_750_000_000)
+    /// The repository's injected clock: what a missing last-online time loads
+    /// as. Distinct from ``lastOnlineAt`` so the tests can tell them apart.
+    private let loadTime = Date(timeIntervalSince1970: 1_760_000_000)
 
     private func withRepository(
         _ body: (FileLicenseRepository, URL) throws -> Void
@@ -24,7 +28,8 @@ import Testing
             .appendingPathComponent("SuttoInfraTests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        try body(FileLicenseRepository(directory: directory), directory)
+        let loadTime = loadTime
+        try body(FileLicenseRepository(directory: directory, now: { loadTime }), directory)
     }
 
     private func activatedState(status: LicenseStatus = .valid) -> LicenseState {
@@ -37,7 +42,8 @@ import Testing
                 lastValidated: lastValidated,
                 status: status
             ),
-            trial: TrialState(daysUsed: 3, lastUsedDate: "2026-07-16")
+            trial: TrialState(daysUsed: 3, lastUsedDate: "2026-07-16"),
+            lastOnlineAt: lastOnlineAt
         )
     }
 
@@ -55,7 +61,7 @@ import Testing
         try withRepository { repository, _ in
             let state = LicenseState(
                 status: .trial, record: nil,
-                trial: TrialState(daysUsed: 5, lastUsedDate: "2026-07-10"))
+                trial: TrialState(daysUsed: 5, lastUsedDate: "2026-07-10"), lastOnlineAt: lastOnlineAt)
 
             try repository.save(state)
 
@@ -68,7 +74,7 @@ import Testing
     /// First run: no file yet. A fresh trial, not an error.
     @Test func loadsFreshTrialWhenNoFileExists() throws {
         try withRepository { repository, _ in
-            #expect(repository.load() == .freshTrial)
+            #expect(repository.load() == .freshTrial(now: loadTime))
         }
     }
 
@@ -82,7 +88,7 @@ import Testing
                 to: directory.appendingPathComponent("license.sutto.json"))
 
             let loaded = repository.load()
-            #expect(loaded == .freshTrial)
+            #expect(loaded == .freshTrial(now: loadTime))
             #expect(loaded.status == .trial)
         }
     }
@@ -117,7 +123,7 @@ import Testing
         try withRepository { repository, directory in
             let state = LicenseState(
                 status: .trialExpired, record: nil,
-                trial: TrialState(daysUsed: 30, lastUsedDate: "2026-07-16"))
+                trial: TrialState(daysUsed: 30, lastUsedDate: "2026-07-16"), lastOnlineAt: lastOnlineAt)
 
             try repository.save(state)
 
@@ -183,7 +189,7 @@ import Testing
             #expect(
                 Set(root.keys) == [
                     "status", "licenseKey", "activationId", "validUntil", "lastValidated",
-                    "trialDaysUsed", "trialLastUsedDate",
+                    "trialDaysUsed", "trialLastUsedDate", "lastOnlineAt",
                 ])
             #expect(root["status"] as? String == "valid")
             #expect(root["licenseKey"] as? String == "KEY-123")
@@ -198,7 +204,7 @@ import Testing
             try repository.save(
                 LicenseState(
                     status: .trial, record: nil,
-                    trial: TrialState(daysUsed: 1, lastUsedDate: "2026-07-16")))
+                    trial: TrialState(daysUsed: 1, lastUsedDate: "2026-07-16"), lastOnlineAt: lastOnlineAt))
 
             let data = try Data(
                 contentsOf: directory.appendingPathComponent("license.sutto.json"))
@@ -207,6 +213,63 @@ import Testing
             #expect(root["validUntil"] == nil)
             #expect(root["lastValidated"] == nil)
             #expect(root["licenseKey"] as? String == "")
+        }
+    }
+
+    // MARK: - Last-online time
+
+    @Test func roundTripsTheLastOnlineTime() throws {
+        try withRepository { repository, directory in
+            try repository.save(activatedState())
+
+            #expect(repository.load().lastOnlineAt == lastOnlineAt)
+            let data = try Data(
+                contentsOf: directory.appendingPathComponent("license.sutto.json"))
+            let root = try #require(
+                try JSONSerialization.jsonObject(with: data) as? [String: Any])
+            // ISO-8601 string, like the other timestamps.
+            #expect(root["lastOnlineAt"] is String)
+        }
+    }
+
+    /// A file written before `lastOnlineAt` existed loads with the load time,
+    /// so the offline limit starts now rather than closing the gate.
+    @Test func loadsAFileWithoutTheLastOnlineTimeWithTheLoadTime() throws {
+        try withRepository { repository, directory in
+            try FileManager.default.createDirectory(
+                at: directory, withIntermediateDirectories: true)
+            let json = """
+                {
+                  "activationId" : "ACT-456",
+                  "lastValidated" : "2023-11-14T22:13:20Z",
+                  "licenseKey" : "KEY-123",
+                  "status" : "valid",
+                  "trialDaysUsed" : 3,
+                  "trialLastUsedDate" : "2026-07-16",
+                  "validUntil" : "2027-01-15T08:00:00Z"
+                }
+                """
+            try Data(json.utf8).write(
+                to: directory.appendingPathComponent("license.sutto.json"))
+
+            let loaded = repository.load()
+            #expect(loaded.status == .valid)
+            #expect(loaded.lastOnlineAt == loadTime)
+            #expect(loaded.isGateOpen(isOnline: false, now: loadTime))
+        }
+    }
+
+    /// A fresh trial and a corrupt file both start the last-online time at the
+    /// load time.
+    @Test func freshAndCorruptLoadsStartTheLastOnlineTimeAtTheLoadTime() throws {
+        try withRepository { repository, directory in
+            #expect(repository.load().lastOnlineAt == loadTime)
+
+            try FileManager.default.createDirectory(
+                at: directory, withIntermediateDirectories: true)
+            try Data("not json".utf8).write(
+                to: directory.appendingPathComponent("license.sutto.json"))
+            #expect(repository.load().lastOnlineAt == loadTime)
         }
     }
 }

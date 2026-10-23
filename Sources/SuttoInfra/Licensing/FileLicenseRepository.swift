@@ -17,33 +17,42 @@ import os
 ///
 /// Unlike those two — which degrade a bad file to "nothing stored" — a missing
 /// or corrupt license file degrades to a **fresh trial**
-/// (``SuttoOperations/LicenseState/freshTrial``), never to `trialExpired` /
+/// (``SuttoOperations/LicenseState/freshTrial(now:)``), never to `trialExpired` /
 /// `expired` / `invalid` (design decision #8). A read failure is not an
 /// authoritative NO, so it must not close the gate; a rare corruption recovers
 /// by re-activating.
+///
+/// Likewise, missing data never closes the gate through the offline limit: a
+/// fresh trial, a corrupt file, and a file written before `lastOnlineAt`
+/// existed all start the last-online time at the load time.
 public final class FileLicenseRepository: LicenseRepository {
     /// File name in the licensing family of `*.sutto.json` documents.
     static let fileName = "license.sutto.json"
 
     private let fileURL: URL
+    private let now: () -> Date
     private let logger = Logger(subsystem: "io.github.x7c1.SuttoMac", category: "persistence")
 
     /// - Parameter directory: the directory holding the file. Injected so
     ///   tests run against a temp directory instead of the real Application
     ///   Support; the app passes
     ///   `FileSpaceCollectionRepository.defaultDirectory()`.
-    public init(directory: URL) {
+    /// - Parameter now: the load time used as the last-online time when none
+    ///   is stored. Injected so tests can pin it.
+    public init(directory: URL, now: @escaping () -> Date = Date.init) {
         fileURL = directory.appendingPathComponent(Self.fileName)
+        self.now = now
     }
 
     public func load() -> LicenseState {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             // First run: no file yet. A fresh trial, not an error.
-            return .freshTrial
+            return .freshTrial(now: now())
         }
         do {
             let data = try Data(contentsOf: fileURL)
-            return try Self.decoder.decode(RawLicenseState.self, from: data).licenseState
+            return try Self.decoder.decode(RawLicenseState.self, from: data)
+                .licenseState(loadedAt: now())
         } catch {
             // Corrupt or unreadable: degrade to a fresh trial, never to a
             // worse verdict (design decision #8).
@@ -53,7 +62,7 @@ public final class FileLicenseRepository: LicenseRepository {
                 \(self.fileURL.path, privacy: .public); degrading to a fresh trial: \
                 \(String(describing: error), privacy: .public)
                 """)
-            return .freshTrial
+            return .freshTrial(now: now())
         }
     }
 
@@ -93,9 +102,9 @@ public final class FileLicenseRepository: LicenseRepository {
 /// `license-key`, `activationId` ↔ `license-activation-id`, `validUntil` ↔
 /// `license-valid-until`, `lastValidated` ↔ `license-last-validated`,
 /// `trialDaysUsed` ↔ `trial-days-used`, `trialLastUsedDate` ↔
-/// `trial-last-used-date`.
+/// `trial-last-used-date`, `lastOnlineAt` ↔ `last-online-at`.
 ///
-/// The two timestamps are ISO-8601 strings rather than GNOME's int64 seconds:
+/// The timestamps are ISO-8601 strings rather than GNOME's int64 seconds:
 /// the file is macOS-only with no byte-compatibility requirement, so
 /// readability wins (design "未確定" note). They are absent entirely in the
 /// trial-only state (no ``LicenseRecord``), which is how ``licenseState``
@@ -114,6 +123,8 @@ private struct RawLicenseState: Codable {
     var lastValidated: Date?
     var trialDaysUsed: Int
     var trialLastUsedDate: String
+    /// Absent in files written before it existed; loads as the load time.
+    var lastOnlineAt: Date?
 
     init(_ state: LicenseState) {
         status = state.status.rawValue
@@ -123,6 +134,7 @@ private struct RawLicenseState: Codable {
         lastValidated = state.record?.lastValidated
         trialDaysUsed = state.trial.daysUsed
         trialLastUsedDate = state.trial.lastUsedDate
+        lastOnlineAt = state.lastOnlineAt
     }
 
     /// The aggregate this document represents. An unknown status string
@@ -134,13 +146,18 @@ private struct RawLicenseState: Codable {
     /// version, which had no `trial-expired` status; it loads as
     /// `trialExpired`, since no backend ever expired a license here. A stored
     /// `expired` with a record stays `expired`.
-    var licenseState: LicenseState {
+    ///
+    /// A missing `lastOnlineAt` loads as `loadedAt`, so the gate is decided as
+    /// if the device had just been online.
+    func licenseState(loadedAt: Date) -> LicenseState {
         let resolvedStatus = LicenseStatus(rawValue: status) ?? .trial
         let trial = TrialState(daysUsed: trialDaysUsed, lastUsedDate: trialLastUsedDate)
+        let lastOnlineAt = lastOnlineAt ?? loadedAt
 
         guard !licenseKey.isEmpty, !activationId.isEmpty else {
             let trialOnlyStatus = resolvedStatus == .expired ? .trialExpired : resolvedStatus
-            return LicenseState(status: trialOnlyStatus, record: nil, trial: trial)
+            return LicenseState(
+                status: trialOnlyStatus, record: nil, trial: trial, lastOnlineAt: lastOnlineAt)
         }
 
         let record = LicenseRecord(
@@ -150,6 +167,7 @@ private struct RawLicenseState: Codable {
             lastValidated: lastValidated ?? Date(timeIntervalSince1970: 0),
             status: resolvedStatus
         )
-        return LicenseState(status: resolvedStatus, record: record, trial: trial)
+        return LicenseState(
+            status: resolvedStatus, record: record, trial: trial, lastOnlineAt: lastOnlineAt)
     }
 }

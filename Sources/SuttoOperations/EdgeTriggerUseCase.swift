@@ -115,8 +115,9 @@ public final class EdgeTriggerUseCase {
 
     /// - Parameters:
     ///   - isGateOpen: whether the licensing gate permits showing the panel.
-    ///     Reads the cached verdict only (``LicenseGate/isOpen()``); it must
-    ///     not touch the network.
+    ///     Called once per show attempt; the composition root points it at
+    ///     ``LicenseGate/admitsPanelShow()``, which records the last-online
+    ///     time and checks the gate without asking the license server.
     ///   - onGateClosed: called instead of showing when a `.showPanel` effect
     ///     is blocked by a closed gate — the composition root points it at the
     ///     licensing entry point (Settings).

@@ -1,7 +1,8 @@
 import Foundation
 
-/// The last authoritative verdict about this device's license, and the sole
-/// status axis the gate decision reads.
+/// The last authoritative verdict about this device's license, and the
+/// status axis the gate decision reads (alongside connectivity — see
+/// ``LicenseGatePolicy``).
 ///
 /// The macOS port of the GNOME `LicenseStatus` (`domain/licensing/license-status.ts`),
 /// with the same five values. The raw strings match the GNOME statuses so the
@@ -19,8 +20,9 @@ public enum LicenseStatus: String, Equatable, Sendable {
     /// closes. Unlike `expired`, no backend said so.
     case trialExpired = "trial-expired"
     /// A license was activated and last heard from the backend as good.
-    /// Under the unlimited fail-open policy this stays enabled until the
-    /// backend gives an authoritative NO (see ``LicenseGatePolicy``).
+    /// Under the fail-open policy no backend silence ever downgrades it; it
+    /// stays enabled until the backend gives an authoritative NO, unless the
+    /// device has been offline for too long (see ``LicenseGatePolicy``).
     case valid
     /// The backend authoritatively refused the license (expired / cancelled /
     /// deactivated device) — the gate closes.

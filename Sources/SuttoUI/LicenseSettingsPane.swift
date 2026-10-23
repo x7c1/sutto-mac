@@ -116,7 +116,7 @@ final class LicenseSettingsPane: NSViewController {
     /// line — it is the result of the user's own last action on this pane.
     func refresh() {
         let state = license.state()
-        statusLabel.stringValue = LicensePresentation.statusText(for: state, now: Date())
+        statusLabel.stringValue = license.statusText()
         // Clearing only makes sense when a license is actually stored.
         clearButton.isEnabled = state.record != nil
     }

@@ -28,14 +28,16 @@ import Testing
         #expect(record(lastValidated: lastValidated).daysSinceLastValidation(now: now) == 1.5)
     }
 
-    /// The gate reads only `status` and the trial, never the record's
-    /// staleness: a valid device that has not validated in years is still
-    /// open. This is the structural guarantee behind unlimited fail-open —
-    /// ``LicenseGatePolicy/isGateOpen(status:trial:)`` cannot even see
-    /// `lastValidated`.
+    /// The gate never reads the record's staleness: a valid device that has
+    /// not validated in years is still open while it keeps coming online. This
+    /// is the structural guarantee behind fail-open —
+    /// ``LicenseGatePolicy/isGateOpen(status:trial:isOnline:daysSinceLastOnline:)``
+    /// cannot even see `lastValidated`.
     @Test func gateIgnoresHowStaleTheValidationIs() {
         let ancient = record(lastValidated: Date(timeIntervalSince1970: 0))
         #expect(ancient.daysSinceLastValidation(now: Date(timeIntervalSince1970: 2_000_000_000)) > 20_000)
-        #expect(LicenseGatePolicy.isGateOpen(status: ancient.status, trial: .initial))
+        #expect(
+            LicenseGatePolicy.isGateOpen(
+                status: ancient.status, trial: .initial, isOnline: false, daysSinceLastOnline: 1))
     }
 }
