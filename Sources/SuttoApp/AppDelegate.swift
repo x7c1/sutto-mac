@@ -82,7 +82,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (`togglePanel`, `edgeTrigger`) record the last-online time, consult
         // the gate, and count a trial day whenever they actually show the
         // panel, and the launch pass at the end of this method validates a
-        // valid license once while online.
+        // valid license (or probes the license server for a spent trial) once
+        // while online.
         let licenseGate = LicenseGate(
             repository: FileLicenseRepository(
                 directory: FileSpaceCollectionRepository.defaultDirectory()
@@ -381,13 +382,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // on a timer: it records the last-online time and, only while online,
         // a `valid` device attempts a single validate; a no-answer
         // keeps the cached verdict (fail-open), and only an authoritative NO
-        // downgrades. The validate is a no-op for the other states, so calling it
-        // unconditionally is safe. No trial day is counted here — that happens
-        // when a panel is actually shown (`onPanelShown` above). Off the launch
-        // path in a Task since validate is async; the gate wiring above does
-        // not depend on it having finished.
-        Task { [licenseGate] in
+        // downgrades. A spent trial instead probes whether the license server
+        // still answers, which decides whether it opens. Both are no-ops for
+        // the other states, so calling it unconditionally is safe. No trial
+        // day is counted here — that happens when a panel is actually shown
+        // (`onPanelShown` above). Off the launch path in a Task since validate
+        // is async; the gate wiring above does not depend on it having
+        // finished. Its outcome can change the licensing state (a downgrade,
+        // or a new probe result), so an open Settings window is re-rendered
+        // afterwards, as for the other licensing changes.
+        Task { [licenseGate, weak self] in
             await licenseGate.validateOnLaunch()
+            self?.settingsWindow?.refreshIfVisible()
         }
     }
 
@@ -405,6 +411,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// backend is live. Until then it points at a non-resolving host, so every
     /// activate/validate returns `.noResponse` — which, by the fail-open
     /// policy, leaves a valid device unlocked and lets a trial count locally.
+    /// The launch probe of a spent trial gets no answer either, so a spent
+    /// trial stays closed only until the next online launch, which reopens it.
     ///
     /// `.invalid` is not a typo: it is the top-level domain RFC 2606 / RFC 6761
     /// reserve as guaranteed never to resolve, so the request fails at DNS

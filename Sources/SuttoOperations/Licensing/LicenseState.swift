@@ -2,8 +2,9 @@ import Foundation
 import SuttoDomain
 
 /// The persisted licensing aggregate: the authoritative gate status, the
-/// activated-license record (once a license exists), the local trial, and the
-/// last time the device was online.
+/// activated-license record (once a license exists), the local trial, the
+/// last time the device was online, and whether the license server answered
+/// the probe after the trial was spent.
 ///
 /// Licensing is stored as one document written all-or-nothing (design
 /// decision #7), so the pieces the GNOME version keeps in separate GSettings
@@ -40,13 +41,22 @@ public struct LicenseState: Equatable, Sendable {
     /// `last-online-at` setting.
     public var lastOnlineAt: Date
 
+    /// Whether the license server answered the last launch probe of a spent
+    /// trial. A `trialExpired` device opens only when this is
+    /// ``SuttoDomain/TrialProbeResult/noResponse``; see
+    /// ``SuttoDomain/LicenseGatePolicy``. The port of the GNOME
+    /// `trial-probe-result` setting.
+    public var trialProbeResult: TrialProbeResult
+
     public init(
-        status: LicenseStatus, record: LicenseRecord?, trial: TrialState, lastOnlineAt: Date
+        status: LicenseStatus, record: LicenseRecord?, trial: TrialState, lastOnlineAt: Date,
+        trialProbeResult: TrialProbeResult = .none
     ) {
         self.status = status
         self.record = record
         self.trial = trial
         self.lastOnlineAt = lastOnlineAt
+        self.trialProbeResult = trialProbeResult
     }
 
     /// A device that has never activated and just started its trial — also the
@@ -68,14 +78,23 @@ public struct LicenseState: Equatable, Sendable {
     /// time since it was last online as of `now`.
     public func isGateOpen(isOnline: Bool, now: Date) -> Bool {
         LicenseGatePolicy.isGateOpen(
-            status: status, trial: trial, isOnline: isOnline,
-            daysSinceLastOnline: daysSinceLastOnline(now: now))
+            status: status, trial: trial, trialProbeResult: trialProbeResult,
+            isOnline: isOnline, daysSinceLastOnline: daysSinceLastOnline(now: now))
     }
 
-    /// Whether the gate is closed because this `valid` device has been offline
-    /// for too long — the one closed state that reconnecting reopens.
+    /// Whether a spent trial is open because the license server no longer
+    /// answered its probe — the state that must not be described as locked.
+    /// The offline limit still applies; see ``isOfflineTooLong(isOnline:now:)``.
+    public var isTrialReopenedByProbe: Bool {
+        status == .trialExpired && trialProbeResult == .noResponse
+    }
+
+    /// Whether the gate is closed because this device has been offline for
+    /// too long — the one closed state that reconnecting reopens. It applies to
+    /// a `valid` device and to a spent trial opened by an unanswered probe
+    /// (``isTrialReopenedByProbe``), the two states the offline limit governs.
     public func isOfflineTooLong(isOnline: Bool, now: Date) -> Bool {
-        status == .valid
+        (status == .valid || isTrialReopenedByProbe)
             && LicenseGatePolicy.isOfflineGraceExceeded(
                 isOnline: isOnline, daysSinceLastOnline: daysSinceLastOnline(now: now))
     }

@@ -42,6 +42,9 @@ final class StubLicenseApiClient: LicenseApiClient {
     /// Runs inside `validate` before it returns, standing in for whatever the
     /// app does on the main actor while the real request is in flight.
     var duringValidate: (@MainActor () -> Void)?
+    /// Like ``duringValidate``, but may await — for work that is itself async,
+    /// such as an activation finishing while the request is in flight.
+    var duringValidateAsync: (@MainActor () async -> Void)?
     private(set) var validateCount = 0
     private(set) var activateCount = 0
     private(set) var lastActivateKey: String?
@@ -61,6 +64,7 @@ final class StubLicenseApiClient: LicenseApiClient {
         lastValidateKey = key
         lastValidateActivationId = activationId
         duringValidate?()
+        await duringValidateAsync?()
         return validationOutcome
     }
 }

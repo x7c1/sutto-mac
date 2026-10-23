@@ -189,7 +189,7 @@ import Testing
             #expect(
                 Set(root.keys) == [
                     "status", "licenseKey", "activationId", "validUntil", "lastValidated",
-                    "trialDaysUsed", "trialLastUsedDate", "lastOnlineAt",
+                    "trialDaysUsed", "trialLastUsedDate", "lastOnlineAt", "trialProbeResult",
                 ])
             #expect(root["status"] as? String == "valid")
             #expect(root["licenseKey"] as? String == "KEY-123")
@@ -270,6 +270,63 @@ import Testing
             try Data("not json".utf8).write(
                 to: directory.appendingPathComponent("license.sutto.json"))
             #expect(repository.load().lastOnlineAt == loadTime)
+        }
+    }
+
+    // MARK: - Trial probe result
+
+    /// Every probe result round-trips, written with the GNOME raw values.
+    @Test(arguments: [
+        (TrialProbeResult.none, "none"),
+        (TrialProbeResult.answered, "answered"),
+        (TrialProbeResult.noResponse, "no-response"),
+    ])
+    func roundTripsTheTrialProbeResult(result: TrialProbeResult, raw: String) throws {
+        try withRepository { repository, directory in
+            let state = LicenseState(
+                status: .trialExpired, record: nil,
+                trial: TrialState(daysUsed: 30, lastUsedDate: "2026-07-16"),
+                lastOnlineAt: lastOnlineAt, trialProbeResult: result)
+
+            try repository.save(state)
+
+            #expect(repository.load() == state)
+            let data = try Data(
+                contentsOf: directory.appendingPathComponent("license.sutto.json"))
+            let root = try #require(
+                try JSONSerialization.jsonObject(with: data) as? [String: Any])
+            #expect(root["trialProbeResult"] as? String == raw)
+        }
+    }
+
+    /// A file written before `trialProbeResult` existed, and one with a value
+    /// this version does not know, both load as `none` — never as an open
+    /// `noResponse`, and never as a load failure.
+    @Test(arguments: [nil, "\"maybe\""] as [String?])
+    func loadsAMissingOrUnknownTrialProbeResultAsNone(rawJSONValue: String?) throws {
+        try withRepository { repository, directory in
+            try FileManager.default.createDirectory(
+                at: directory, withIntermediateDirectories: true)
+            let probeLine = rawJSONValue.map { "\"trialProbeResult\" : \($0)," } ?? ""
+            let json = """
+                {
+                  "activationId" : "",
+                  "lastOnlineAt" : "2025-06-15T15:06:40Z",
+                  "licenseKey" : "",
+                  "status" : "trial-expired",
+                  \(probeLine)
+                  "trialDaysUsed" : 30,
+                  "trialLastUsedDate" : "2026-07-16"
+                }
+                """
+            try Data(json.utf8).write(
+                to: directory.appendingPathComponent("license.sutto.json"))
+
+            let loaded = repository.load()
+            #expect(loaded.status == .trialExpired)
+            #expect(loaded.trial.daysUsed == 30)
+            #expect(loaded.trialProbeResult == .none)
+            #expect(!loaded.isGateOpen(isOnline: true, now: loadTime))
         }
     }
 }

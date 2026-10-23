@@ -518,4 +518,181 @@ import Testing
 
         #expect(changes == 3)
     }
+
+    // MARK: - Trial probe: a spent trial asks whether the license server is there
+
+    private func spentTrialState(
+        trialProbe: TrialProbeResult = .none, lastOnlineAt: Date? = nil
+    ) -> LicenseState {
+        LicenseState(
+            status: .trialExpired, record: nil,
+            trial: TrialState(daysUsed: TrialState.maxDays, lastUsedDate: "2026-07-15"),
+            lastOnlineAt: lastOnlineAt ?? t0, trialProbeResult: trialProbe)
+    }
+
+    private static let day: TimeInterval = 24 * 60 * 60
+
+    /// Online, the server answers (here by refusing the empty key): the result
+    /// is `answered`, the status stays `trialExpired`, and the gate stays
+    /// closed. The probe is a validate with an empty key and activation id.
+    @Test func trialProbeAnsweredKeepsTheSpentTrialClosed() async {
+        let repository = InMemoryLicenseRepository(state: spentTrialState())
+        let apiClient = StubLicenseApiClient()
+        apiClient.validationOutcome = .rejected(.invalidKey)
+        let gate = makeGate(repository: repository, apiClient: apiClient, now: { self.t1 })
+
+        await gate.validateOnLaunch()
+
+        #expect(apiClient.validateCount == 1)
+        #expect(apiClient.lastValidateKey == "")
+        #expect(apiClient.lastValidateActivationId == "")
+        #expect(gate.state().trialProbeResult == .answered)
+        #expect(gate.state().status == .trialExpired)
+        #expect(repository.storedState.trialProbeResult == .answered)
+        #expect(!gate.isOpen())
+        #expect(!gate.admitsPanelShow())
+    }
+
+    /// A server that accepts the probe has answered too.
+    @Test func trialProbeAcceptedCountsAsAnswered() async {
+        let repository = InMemoryLicenseRepository(state: spentTrialState())
+        let apiClient = StubLicenseApiClient()
+        apiClient.validationOutcome = .valid(validUntil: t1)
+        let gate = makeGate(repository: repository, apiClient: apiClient, now: { self.t1 })
+
+        await gate.validateOnLaunch()
+
+        #expect(gate.state().trialProbeResult == .answered)
+        #expect(gate.state().status == .trialExpired)
+        #expect(gate.state().record == nil)
+        #expect(!gate.isOpen())
+    }
+
+    /// Online, the server does not answer: the result is `noResponse`, the
+    /// status stays `trialExpired`, and the gate opens.
+    @Test func trialProbeNoResponseOpensTheSpentTrial() async {
+        let repository = InMemoryLicenseRepository(state: spentTrialState())
+        let apiClient = StubLicenseApiClient()
+        apiClient.validationOutcome = .noResponse
+        let gate = makeGate(repository: repository, apiClient: apiClient, now: { self.t1 })
+
+        await gate.validateOnLaunch()
+
+        #expect(apiClient.validateCount == 1)
+        #expect(gate.state().trialProbeResult == .noResponse)
+        #expect(gate.state().status == .trialExpired)
+        #expect(repository.storedState.trialProbeResult == .noResponse)
+        #expect(gate.isOpen())
+        #expect(gate.admitsPanelShow())
+    }
+
+    /// Offline at launch, the probe is not attempted and the stored result is
+    /// kept, whichever it is.
+    @Test(arguments: [TrialProbeResult.none, .answered, .noResponse])
+    func trialProbeIsSkippedOfflineAndKeepsTheStoredResult(
+        trialProbe: TrialProbeResult
+    ) async {
+        let state = spentTrialState(trialProbe: trialProbe)
+        let repository = InMemoryLicenseRepository(state: state)
+        let apiClient = StubLicenseApiClient()
+        apiClient.validationOutcome = .rejected(.invalidKey)
+        let gate = makeGate(
+            repository: repository, apiClient: apiClient,
+            connectivity: StubConnectivity(isOnline: false), now: { self.t1 })
+
+        await gate.validateOnLaunch()
+
+        #expect(apiClient.validateCount == 0)
+        #expect(gate.state() == state)
+        #expect(repository.savedStates.isEmpty)
+    }
+
+    /// A spent trial opened by an unanswered probe follows the `valid` offline
+    /// rule: open offline under 7 days since last online, closed at 7 or more.
+    @Test(arguments: [(0.0, true), (6.0, true), (6.99, true), (7.0, false), (30.0, false)])
+    func trialProbeNoResponseFollowsTheOfflineLimit(
+        daysSinceLastOnline: Double, expectedOpen: Bool
+    ) async {
+        let now = t0.addingTimeInterval(daysSinceLastOnline * Self.day)
+        let repository = InMemoryLicenseRepository(
+            state: spentTrialState(trialProbe: .noResponse, lastOnlineAt: t0))
+        let apiClient = StubLicenseApiClient()
+        let gate = makeGate(
+            repository: repository, apiClient: apiClient,
+            connectivity: StubConnectivity(isOnline: false), now: { now })
+
+        await gate.validateOnLaunch()
+
+        #expect(apiClient.validateCount == 0)
+        #expect(gate.state().trialProbeResult == .noResponse)
+        #expect(gate.isOpen() == expectedOpen)
+        #expect(gate.admitsPanelShow() == expectedOpen)
+    }
+
+    /// A device that found the server gone, back online with the server
+    /// answering again, is closed again.
+    @Test func trialProbeAnsweredAgainClosesAPreviouslyOpenSpentTrial() async {
+        let repository = InMemoryLicenseRepository(
+            state: spentTrialState(trialProbe: .noResponse))
+        let apiClient = StubLicenseApiClient()
+        apiClient.validationOutcome = .rejected(.invalidKey)
+        let gate = makeGate(repository: repository, apiClient: apiClient, now: { self.t1 })
+        #expect(gate.isOpen())
+
+        await gate.validateOnLaunch()
+
+        #expect(gate.state().trialProbeResult == .answered)
+        #expect(repository.storedState.trialProbeResult == .answered)
+        #expect(!gate.isOpen())
+    }
+
+    /// Only a spent trial is probed: `trial`, `valid`, `expired`, and
+    /// `invalid` never send the empty-key validate, and never change the
+    /// stored probe result.
+    @Test(arguments: [LicenseStatus.trial, .valid, .expired, .invalid])
+    func trialProbeIsNeverSentForOtherStatuses(status: LicenseStatus) async {
+        let state =
+            status == .trial ? trialState(daysUsed: 3, lastUsedDate: "2026-07-15")
+            : validState(status: status)
+        let repository = InMemoryLicenseRepository(state: state)
+        let apiClient = StubLicenseApiClient()
+        apiClient.validationOutcome = .noResponse
+        let gate = makeGate(repository: repository, apiClient: apiClient, now: { self.t1 })
+
+        await gate.validateOnLaunch()
+
+        #expect(apiClient.lastValidateKey != "")
+        #expect(gate.state().trialProbeResult == .none)
+        #expect(gate.state().status == status)
+        if status != .valid {
+            #expect(apiClient.validateCount == 0)
+        }
+    }
+
+    /// A license activated while the probe waited is not overwritten by the
+    /// probe's answer: the stored state stays `valid` with its record, and no
+    /// probe result is written over it.
+    @Test func trialProbeInFlightDoesNotOverwriteAnActivation() async {
+        let repository = InMemoryLicenseRepository(state: spentTrialState())
+        let apiClient = StubLicenseApiClient()
+        apiClient.validationOutcome = .noResponse
+        let record = LicenseRecord(
+            licenseKey: "KEY-NEW", activationId: "ACT-NEW", validUntil: t1, lastValidated: t1,
+            status: .valid)
+        apiClient.activationOutcome = .activated(record: record)
+        let gate = makeGate(repository: repository, apiClient: apiClient, now: { self.t1 })
+        apiClient.duringValidateAsync = { _ = await gate.activate(key: "KEY-NEW") }
+
+        await gate.validateOnLaunch()
+
+        #expect(apiClient.validateCount == 1)
+        #expect(apiClient.activateCount == 1)
+        #expect(gate.state().status == .valid)
+        #expect(gate.state().record == record)
+        #expect(gate.state().trialProbeResult == .none)
+        #expect(repository.storedState.status == .valid)
+        #expect(repository.storedState.record == record)
+        #expect(repository.storedState.trialProbeResult == .none)
+        #expect(gate.isOpen())
+    }
 }
