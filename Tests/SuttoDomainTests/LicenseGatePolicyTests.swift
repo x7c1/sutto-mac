@@ -7,16 +7,18 @@ import Testing
 /// connectivity axis (whether the device is online, and how long since it was
 /// last online). These tests pin "valid is open unless offline for 7 days or
 /// more since it was last online", "trial is open until day 30, online or
-/// offline", and "trial-expired / expired / invalid are closed".
+/// offline", "trial-expired opens only once the license server stops
+/// answering", and "expired / invalid are closed".
 @Suite struct LicenseGatePolicyTests {
     private func isOpen(
         _ status: LicenseStatus,
         trial: TrialState = .initial,
+        trialProbe: TrialProbeResult = .none,
         online: Bool = true,
         daysSinceLastOnline: Double = 0
     ) -> Bool {
         LicenseGatePolicy.isGateOpen(
-            status: status, trial: trial, isOnline: online,
+            status: status, trial: trial, trialProbeResult: trialProbe, isOnline: online,
             daysSinceLastOnline: daysSinceLastOnline)
     }
 
@@ -86,8 +88,8 @@ import Testing
 
     // MARK: - closed statuses
 
-    /// A spent trial is closed regardless of the stored trial counter — the
-    /// status alone decides.
+    /// A spent trial that has not found the server gone is closed regardless
+    /// of the stored trial counter — the status alone decides.
     @Test func trialExpiredIsClosed() {
         #expect(LicenseStatus.trialExpired.rawValue == "trial-expired")
         let spent = TrialState(daysUsed: TrialState.maxDays, lastUsedDate: "2026-07-16")
@@ -95,13 +97,78 @@ import Testing
         #expect(!isOpen(.trialExpired, trial: .initial))
     }
 
-    /// `trialExpired`, `expired`, and `invalid` are closed online and offline,
-    /// however recently the device was last online.
+    /// Without a `noResponse` probe result, `trialExpired`, `expired`, and
+    /// `invalid` are closed online and offline, however recently the device was
+    /// last online.
     @Test(arguments: [LicenseStatus.trialExpired, .expired, .invalid])
     func closedStatusesStayClosedOnlineOrOffline(status: LicenseStatus) {
         #expect(!isOpen(status, online: true, daysSinceLastOnline: 0))
         #expect(!isOpen(status, online: false, daysSinceLastOnline: 0))
         #expect(!isOpen(status, online: false, daysSinceLastOnline: 30))
+    }
+
+    // MARK: - trial probe
+
+    /// `trialExpired` × probe result × connectivity: closed for `none` and
+    /// `answered` everywhere; open for `noResponse` online and offline under 7
+    /// days, closed offline at 7 days or more — the `valid` offline rule.
+    @Test(arguments: [
+        (TrialProbeResult.none, true, 0.0, false),
+        (TrialProbeResult.none, false, 3.0, false),
+        (TrialProbeResult.none, false, 7.0, false),
+        (TrialProbeResult.answered, true, 0.0, false),
+        (TrialProbeResult.answered, false, 3.0, false),
+        (TrialProbeResult.answered, false, 7.0, false),
+        (TrialProbeResult.noResponse, true, 0.0, true),
+        (TrialProbeResult.noResponse, true, 400.0, true),
+        (TrialProbeResult.noResponse, false, 3.0, true),
+        (TrialProbeResult.noResponse, false, 6.99, true),
+        (TrialProbeResult.noResponse, false, 7.0, false),
+        (TrialProbeResult.noResponse, false, 30.0, false),
+    ])
+    func trialExpiredOpensOnlyWhenTheServerNoLongerAnswers(
+        trialProbe: TrialProbeResult, online: Bool, daysSinceLastOnline: Double,
+        expectedOpen: Bool
+    ) {
+        let spent = TrialState(daysUsed: TrialState.maxDays, lastUsedDate: "2026-07-16")
+        #expect(
+            isOpen(
+                .trialExpired, trial: spent, trialProbe: trialProbe, online: online,
+                daysSinceLastOnline: daysSinceLastOnline) == expectedOpen)
+    }
+
+    /// A server that does not answer never opens a license it refused:
+    /// `expired` and `invalid` stay closed whatever the probe found.
+    @Test(arguments: [LicenseStatus.expired, .invalid])
+    func refusedLicensesStayClosedWhenTheServerDoesNotAnswer(status: LicenseStatus) {
+        #expect(!isOpen(status, trialProbe: .noResponse, online: true))
+        #expect(!isOpen(status, trialProbe: .noResponse, online: false, daysSinceLastOnline: 1))
+    }
+
+    /// The probe result reaches only `trialExpired`: `valid` and `trial`
+    /// decide as before.
+    @Test(arguments: [TrialProbeResult.none, .answered, .noResponse])
+    func trialProbeDoesNotAffectValidOrTrial(trialProbe: TrialProbeResult) {
+        #expect(isOpen(.valid, trialProbe: trialProbe, online: false, daysSinceLastOnline: 3))
+        #expect(!isOpen(.valid, trialProbe: trialProbe, online: false, daysSinceLastOnline: 7))
+        let lastDay = TrialState(daysUsed: 29, lastUsedDate: "2026-07-16")
+        #expect(isOpen(.trial, trial: lastDay, trialProbe: trialProbe))
+    }
+
+    @Test func trialProbeResultRawValuesMatchTheStoredStrings() {
+        #expect(TrialProbeResult.none.rawValue == "none")
+        #expect(TrialProbeResult.answered.rawValue == "answered")
+        #expect(TrialProbeResult.noResponse.rawValue == "no-response")
+    }
+
+    /// A probe is classified like any validate: accepted or refused means the
+    /// server answered.
+    @Test func trialProbeResultClassifiesValidateOutcomes() {
+        let date = Date(timeIntervalSince1970: 1_000_000_000)
+        #expect(TrialProbeResult(outcome: .valid(validUntil: date)) == .answered)
+        #expect(TrialProbeResult(outcome: .rejected(.invalidKey)) == .answered)
+        #expect(TrialProbeResult(outcome: .rejected(.expired)) == .answered)
+        #expect(TrialProbeResult(outcome: .noResponse) == .noResponse)
     }
 
     // MARK: - days since last online

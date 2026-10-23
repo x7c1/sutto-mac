@@ -102,7 +102,8 @@ public final class FileLicenseRepository: LicenseRepository {
 /// `license-key`, `activationId` ↔ `license-activation-id`, `validUntil` ↔
 /// `license-valid-until`, `lastValidated` ↔ `license-last-validated`,
 /// `trialDaysUsed` ↔ `trial-days-used`, `trialLastUsedDate` ↔
-/// `trial-last-used-date`, `lastOnlineAt` ↔ `last-online-at`.
+/// `trial-last-used-date`, `lastOnlineAt` ↔ `last-online-at`,
+/// `trialProbeResult` ↔ `trial-probe-result`.
 ///
 /// The timestamps are ISO-8601 strings rather than GNOME's int64 seconds:
 /// the file is macOS-only with no byte-compatibility requirement, so
@@ -125,6 +126,11 @@ private struct RawLicenseState: Codable {
     var trialLastUsedDate: String
     /// Absent in files written before it existed; loads as the load time.
     var lastOnlineAt: Date?
+    /// The raw ``SuttoDomain/TrialProbeResult`` string. Absent in files
+    /// written before it existed; that, or an unknown value, loads as `none`
+    /// — the server not asked yet, which keeps a spent trial closed until the
+    /// next online launch asks again.
+    var trialProbeResult: String?
 
     init(_ state: LicenseState) {
         status = state.status.rawValue
@@ -135,6 +141,7 @@ private struct RawLicenseState: Codable {
         trialDaysUsed = state.trial.daysUsed
         trialLastUsedDate = state.trial.lastUsedDate
         lastOnlineAt = state.lastOnlineAt
+        trialProbeResult = state.trialProbeResult.rawValue
     }
 
     /// The aggregate this document represents. An unknown status string
@@ -148,16 +155,19 @@ private struct RawLicenseState: Codable {
     /// `expired` with a record stays `expired`.
     ///
     /// A missing `lastOnlineAt` loads as `loadedAt`, so the gate is decided as
-    /// if the device had just been online.
+    /// if the device had just been online. A missing or unknown
+    /// `trialProbeResult` loads as `none`.
     func licenseState(loadedAt: Date) -> LicenseState {
         let resolvedStatus = LicenseStatus(rawValue: status) ?? .trial
         let trial = TrialState(daysUsed: trialDaysUsed, lastUsedDate: trialLastUsedDate)
         let lastOnlineAt = lastOnlineAt ?? loadedAt
+        let probeResult = trialProbeResult.flatMap(TrialProbeResult.init(rawValue:)) ?? .none
 
         guard !licenseKey.isEmpty, !activationId.isEmpty else {
             let trialOnlyStatus = resolvedStatus == .expired ? .trialExpired : resolvedStatus
             return LicenseState(
-                status: trialOnlyStatus, record: nil, trial: trial, lastOnlineAt: lastOnlineAt)
+                status: trialOnlyStatus, record: nil, trial: trial, lastOnlineAt: lastOnlineAt,
+                trialProbeResult: probeResult)
         }
 
         let record = LicenseRecord(
@@ -168,6 +178,7 @@ private struct RawLicenseState: Codable {
             status: resolvedStatus
         )
         return LicenseState(
-            status: resolvedStatus, record: record, trial: trial, lastOnlineAt: lastOnlineAt)
+            status: resolvedStatus, record: record, trial: trial, lastOnlineAt: lastOnlineAt,
+            trialProbeResult: probeResult)
     }
 }

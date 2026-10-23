@@ -164,4 +164,64 @@ import Testing
             LicensePresentation.statusText(for: state, isOnline: false, now: now)
                 == "Trial — 25 days remaining")
     }
+
+    // MARK: - Spent trial and the license-server probe
+
+    private static let reopenedTrialText =
+        "Trial ended — Sutto stays available; a license supports its development"
+    private static let lockedTrialText = "Trial expired — activate a license to keep using Sutto"
+
+    private func spentTrial(
+        trialProbe: TrialProbeResult, daysSinceLastOnline days: Double = 0
+    ) -> LicenseState {
+        LicenseState(
+            status: .trialExpired, record: nil,
+            trial: TrialState(daysUsed: 30, lastUsedDate: "2026-07-10"),
+            lastOnlineAt: now.addingTimeInterval(-days * 24 * 60 * 60),
+            trialProbeResult: trialProbe)
+    }
+
+    /// A spent trial opened because the license server no longer answers is
+    /// not described as locked; it still mentions a license.
+    @Test func trialProbeNoResponseShowsTheNonLockedText() {
+        let state = spentTrial(trialProbe: .noResponse)
+        #expect(state.isGateOpen(isOnline: true, now: now))
+        #expect(
+            LicensePresentation.statusText(for: state, isOnline: true, now: now)
+                == Self.reopenedTrialText)
+        #expect(
+            LicensePresentation.statusText(
+                for: spentTrial(trialProbe: .noResponse, daysSinceLastOnline: 3),
+                isOnline: false, now: now) == Self.reopenedTrialText)
+    }
+
+    /// A spent trial that is closed — the server answered, or has not been
+    /// asked yet — keeps the "Trial expired" wording.
+    @Test(arguments: [TrialProbeResult.none, .answered])
+    func trialProbeClosedShowsTheTrialExpiredText(trialProbe: TrialProbeResult) {
+        let state = spentTrial(trialProbe: trialProbe)
+        #expect(!state.isGateOpen(isOnline: true, now: now))
+        #expect(
+            LicensePresentation.statusText(for: state, isOnline: true, now: now)
+                == Self.lockedTrialText)
+    }
+
+    /// A reopened spent trial offline for 7 days or more is closed by the
+    /// offline limit and says so, like a `valid` device.
+    @Test func trialProbeNoResponsePastTheOfflineLimitShowsTheReconnectText() {
+        let state = spentTrial(trialProbe: .noResponse, daysSinceLastOnline: 7)
+        #expect(!state.isGateOpen(isOnline: false, now: now))
+        #expect(
+            LicensePresentation.statusText(for: state, isOnline: false, now: now)
+                == Self.offlineText)
+    }
+
+    /// A closed spent trial is closed by the server, not by the offline limit,
+    /// so a long time offline keeps the "Trial expired" wording.
+    @Test func trialProbeAnsweredOfflineLongKeepsTheTrialExpiredText() {
+        let state = spentTrial(trialProbe: .answered, daysSinceLastOnline: 30)
+        #expect(
+            LicensePresentation.statusText(for: state, isOnline: false, now: now)
+                == Self.lockedTrialText)
+    }
 }

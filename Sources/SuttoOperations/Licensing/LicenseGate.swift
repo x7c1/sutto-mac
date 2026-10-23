@@ -4,8 +4,9 @@ import os
 
 /// The operations half of licensing: it owns the ``LicenseState`` aggregate,
 /// answers whether the gated features are unlocked, and drives the
-/// transitions (activate, launch validate, trial day count on panel show, and
-/// recording the last time the device was online).
+/// transitions (activate, launch validate, the launch probe of a spent trial,
+/// trial day count on panel show, and recording the last time the device was
+/// online).
 ///
 /// This folds the GNOME `LicenseStateHandler` + `LicenseOperations` into one
 /// use case, wrapping the pure ``SuttoDomain/LicenseGatePolicy`` and
@@ -22,9 +23,11 @@ import os
 /// Two axes are kept apart. **Reachability** (did the license server answer)
 /// only ever comes from a validate, and ``validateOnLaunch()`` downgrades only
 /// on an authoritative NO, so a backend that is unreachable — or has vanished
-/// (404 / 410) — never closes the gate. **Connectivity** (is the device on a
-/// network) comes from ``ConnectivityMonitoring``: a `valid` device may stay
-/// offline for at most ``SuttoDomain/LicenseGatePolicy/offlineGracePeriodDays``
+/// (404 / 410) — never closes the gate; for a spent trial, it is what opens
+/// the gate. **Connectivity** (is the device on a
+/// network) comes from ``ConnectivityMonitoring``: a `valid` device, or a
+/// spent trial opened by an unanswered probe, may stay offline for at most
+/// ``SuttoDomain/LicenseGatePolicy/offlineGracePeriodDays``
 /// counted from the last time it was online, which this records at launch, on
 /// every panel-show attempt, and on every connectivity change.
 @MainActor
@@ -174,32 +177,52 @@ public final class LicenseGate {
         return outcome
     }
 
-    /// Records the last-online time and validates a `valid` license once at
-    /// launch, downgrading only on an authoritative NO.
+    /// The launch licensing pass: records the last-online time, then — only
+    /// while online — validates a `valid` license, or probes the license
+    /// server for a spent trial.
     ///
-    /// The port of the GNOME `initialize()` + `handleValidationError`. The
-    /// last-online time is recorded first, if the device is online. The
-    /// validate runs only when the device is online — offline is not "no
-    /// answer", it is handled by the offline limit — and only when the cached
-    /// status is `valid` and a record exists. It maps
-    /// the outcome through ``SuttoDomain/ValidationOutcome/resolvedStatus(from:)``.
-    /// A `.noResponse` (offline / timeout / 5xx / 404 / 410) leaves the status
-    /// untouched — the heart of fail-open — so nothing is written in that case.
-    /// There is no periodic re-validation (design decision #9).
+    /// The port of the GNOME `initialize()`. The last-online time is recorded
+    /// first, if the device is online. Offline, nothing else happens — offline
+    /// is not "no answer", it is handled by the offline limit — so a stored
+    /// probe result is kept. Online:
+    ///
+    /// - `valid` with a record → ``validateStoredLicense(_:)``, downgrading only
+    ///   on an authoritative NO;
+    /// - `trialExpired` → ``probeLicenseServer()``, which stores whether the
+    ///   server answered and never changes the status;
+    /// - any other status → nothing.
+    ///
+    /// Each runs at most once per launch; there is no periodic re-validation
+    /// (design decision #9).
     public func validateOnLaunch() async {
         guard recordOnlineIfConnected() else {
-            logger.info("device is offline at launch; skipping the launch validate")
+            logger.info("device is offline at launch; skipping the launch validate and probe")
             return
         }
-        var state = loadedState()
-        guard state.status == .valid, let record = state.record else { return }
+        let state = loadedState()
+        switch state.status {
+        case .valid:
+            guard let record = state.record else { return }
+            await validateStoredLicense(record)
+        case .trialExpired:
+            await probeLicenseServer()
+        case .trial, .expired, .invalid:
+            return
+        }
+    }
 
+    /// Validates the stored `valid` license once, mapping the outcome through
+    /// ``SuttoDomain/ValidationOutcome/resolvedStatus(from:)``. The port of the
+    /// GNOME `handleValidationError`. A `.noResponse` (offline / timeout / 5xx
+    /// / 404 / 410) leaves the status untouched — the heart of fail-open — so
+    /// nothing is written in that case.
+    private func validateStoredLicense(_ record: LicenseRecord) async {
         let outcome = await apiClient.validate(
             key: record.licenseKey, activationId: record.activationId)
         // Re-read after the await: a panel show or connectivity change may
         // have updated the state meanwhile. If the license itself changed
         // (cleared or replaced), this answer no longer applies to it.
-        state = loadedState()
+        var state = loadedState()
         guard state.record?.activationId == record.activationId else { return }
 
         switch outcome {
@@ -216,6 +239,33 @@ public final class LicenseGate {
             // valid device, so the cached status stands and nothing is saved.
             logger.info("launch validate had no authoritative answer; keeping cached status")
         }
+    }
+
+    /// Asks the license server whether it is still there and stores whether it
+    /// answered, as ``LicenseState/trialProbeResult``. A spent trial opens only
+    /// once the server no longer answers (see
+    /// ``SuttoDomain/LicenseGatePolicy``). The port of the GNOME
+    /// `probeLicenseServer`.
+    ///
+    /// The probe is the ordinary validate with an empty license key and an
+    /// empty activation id — the contract reuses validate rather than adding an
+    /// endpoint — classified the same way: accepted or refused is `answered`,
+    /// ``SuttoDomain/ValidationOutcome/noResponse`` is `noResponse`. The status
+    /// is never changed: a spent trial stays `trialExpired`.
+    private func probeLicenseServer() async {
+        let outcome = await apiClient.validate(key: "", activationId: "")
+        let result = TrialProbeResult(outcome: outcome)
+        // Re-read after the await: if a license was activated (or anything
+        // else moved the status off `trialExpired`) while the probe was in
+        // flight, its answer no longer applies and must not overwrite that
+        // newer state.
+        var state = loadedState()
+        guard state.status == .trialExpired else { return }
+        logger.info(
+            "license server probe after the trial: \(result.rawValue, privacy: .public)")
+        guard state.trialProbeResult != result else { return }
+        state.trialProbeResult = result
+        persist(state)
     }
 
     /// Counts today as a trial day of use because a normal panel was just

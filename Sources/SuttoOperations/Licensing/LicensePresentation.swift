@@ -38,6 +38,12 @@ public enum LicensePresentation {
             }
             return "License active — \(lastVerifiedText(for: record, now: now))"
         case .trialExpired:
+            if state.isTrialReopenedByProbe {
+                // Open because the license server no longer answers: say the
+                // trial is over without claiming Sutto is locked, and still
+                // invite a purchase.
+                return "Trial ended — Sutto stays available; a license supports its development"
+            }
             return "Trial expired — activate a license to keep using Sutto"
         case .expired:
             return "License expired — renew or activate a new license"
