@@ -17,9 +17,10 @@ import os
 ///
 /// Unlike those two — which degrade a bad file to "nothing stored" — a missing
 /// or corrupt license file degrades to a **fresh trial**
-/// (``SuttoOperations/LicenseState/freshTrial``), never to `expired` /
-/// `invalid` (design decision #8). A read failure is not an authoritative NO,
-/// so it must not close the gate; a rare corruption recovers by re-activating.
+/// (``SuttoOperations/LicenseState/freshTrial``), never to `trialExpired` /
+/// `expired` / `invalid` (design decision #8). A read failure is not an
+/// authoritative NO, so it must not close the gate; a rare corruption recovers
+/// by re-activating.
 public final class FileLicenseRepository: LicenseRepository {
     /// File name in the licensing family of `*.sutto.json` documents.
     static let fileName = "license.sutto.json"
@@ -128,12 +129,18 @@ private struct RawLicenseState: Codable {
     /// degrades to `trial` (never a worse verdict, design decision #8), and a
     /// record is reconstructed only when both the key and activation id are
     /// present — matching the GNOME `loadLicense()` null check.
+    ///
+    /// A stored `expired` with no record is a spent trial written by an older
+    /// version, which had no `trial-expired` status; it loads as
+    /// `trialExpired`, since no backend ever expired a license here. A stored
+    /// `expired` with a record stays `expired`.
     var licenseState: LicenseState {
         let resolvedStatus = LicenseStatus(rawValue: status) ?? .trial
         let trial = TrialState(daysUsed: trialDaysUsed, lastUsedDate: trialLastUsedDate)
 
         guard !licenseKey.isEmpty, !activationId.isEmpty else {
-            return LicenseState(status: resolvedStatus, record: nil, trial: trial)
+            let trialOnlyStatus = resolvedStatus == .expired ? .trialExpired : resolvedStatus
+            return LicenseState(status: trialOnlyStatus, record: nil, trial: trial)
         }
 
         let record = LicenseRecord(

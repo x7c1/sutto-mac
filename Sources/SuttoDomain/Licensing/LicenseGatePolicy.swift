@@ -17,7 +17,10 @@ import Foundation
 ///   merely unreachable — or has vanished entirely (404 / 410 / DNS) — never
 ///   closes the gate.
 /// - `trial` → open while the local trial has days left.
-/// - `expired` / `invalid` → closed.
+/// - `trialExpired` → closed. The local trial is spent and no license was
+///   activated.
+/// - `expired` / `invalid` → closed. Only an authoritative answer from the
+///   backend produces these.
 ///
 /// The decision reads **only** `status` and `trial`. No staleness, no live
 /// network state, no clock — those never reach this policy, which is what
@@ -31,7 +34,7 @@ public enum LicenseGatePolicy {
             return true
         case .trial:
             return !trial.isExpired
-        case .expired, .invalid:
+        case .trialExpired, .expired, .invalid:
             return false
         }
     }

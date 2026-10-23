@@ -6,7 +6,8 @@ import Testing
 /// The gate decision under the unlimited fail-open policy: it reads only the
 /// authoritative status and the local trial, never staleness or network state
 /// (design decisions #1 and #6). These tests pin "valid is always open",
-/// "trial is open until day 30", and "expired / invalid are closed".
+/// "trial is open until day 30", and "trial-expired / expired / invalid are
+/// closed".
 @Suite struct LicenseGatePolicyTests {
     @Test func validIsOpenUnconditionally() {
         #expect(LicenseGatePolicy.isGateOpen(status: .valid, trial: .initial))
@@ -32,6 +33,15 @@ import Testing
 
         let expired = TrialState(daysUsed: 30, lastUsedDate: "2026-07-16")
         #expect(!LicenseGatePolicy.isGateOpen(status: .trial, trial: expired))
+    }
+
+    /// A spent trial is closed regardless of the stored trial counter — the
+    /// status alone decides.
+    @Test func trialExpiredIsClosed() {
+        #expect(LicenseStatus.trialExpired.rawValue == "trial-expired")
+        let spent = TrialState(daysUsed: TrialState.maxDays, lastUsedDate: "2026-07-16")
+        #expect(!LicenseGatePolicy.isGateOpen(status: .trialExpired, trial: spent))
+        #expect(!LicenseGatePolicy.isGateOpen(status: .trialExpired, trial: .initial))
     }
 
     @Test func expiredIsClosed() {

@@ -11,7 +11,8 @@ import Testing
             showPanel: { shown += 1 },
             hidePanel: { hidden += 1 },
             isGateOpen: { true },
-            onGateClosed: {}
+            onGateClosed: {},
+            onPanelShown: {}
         )
 
         useCase.toggle()
@@ -28,7 +29,8 @@ import Testing
             showPanel: { shown += 1 },
             hidePanel: { hidden += 1 },
             isGateOpen: { true },
-            onGateClosed: {}
+            onGateClosed: {},
+            onPanelShown: {}
         )
 
         useCase.toggle()
@@ -51,7 +53,8 @@ import Testing
                 actions.append("hide")
             },
             isGateOpen: { true },
-            onGateClosed: {}
+            onGateClosed: {},
+            onPanelShown: {}
         )
 
         useCase.toggle()
@@ -72,7 +75,8 @@ import Testing
             showPanel: { shown += 1 },
             hidePanel: { hidden += 1 },
             isGateOpen: { false },
-            onGateClosed: { gateClosed += 1 }
+            onGateClosed: { gateClosed += 1 },
+            onPanelShown: {}
         )
 
         useCase.toggle()
@@ -93,7 +97,8 @@ import Testing
             showPanel: { shown += 1 },
             hidePanel: { hidden += 1 },
             isGateOpen: { false },
-            onGateClosed: { gateClosed += 1 }
+            onGateClosed: { gateClosed += 1 },
+            onPanelShown: {}
         )
 
         useCase.toggle()
@@ -114,7 +119,8 @@ import Testing
             showPanel: { shown += 1 },
             hidePanel: {},
             isGateOpen: { open },
-            onGateClosed: { gateClosed += 1 }
+            onGateClosed: { gateClosed += 1 },
+            onPanelShown: {}
         )
 
         useCase.toggle()  // closed
@@ -123,5 +129,44 @@ import Testing
 
         #expect(gateClosed == 1)
         #expect(shown == 1)
+    }
+
+    // MARK: - Panel shown (trial day count)
+
+    @Test func reportsThePanelShownOnlyAfterShowing() {
+        var events: [String] = []
+        let useCase = PanelToggleUseCase(
+            isPanelVisible: { false },
+            showPanel: { events.append("show") },
+            hidePanel: { events.append("hide") },
+            isGateOpen: { true },
+            onGateClosed: { events.append("closed") },
+            onPanelShown: { events.append("shown") }
+        )
+
+        useCase.toggle()
+
+        #expect(events == ["show", "shown"])
+    }
+
+    @Test func doesNotReportThePanelShownOnHideOrRefusedShow() {
+        var shownReports = 0
+        var visible = true
+        var open = true
+        let useCase = PanelToggleUseCase(
+            isPanelVisible: { visible },
+            showPanel: {},
+            hidePanel: {},
+            isGateOpen: { open },
+            onGateClosed: {},
+            onPanelShown: { shownReports += 1 }
+        )
+
+        useCase.toggle()  // hides
+        visible = false
+        open = false
+        useCase.toggle()  // refused by the closed gate
+
+        #expect(shownReports == 0)
     }
 }

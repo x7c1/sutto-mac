@@ -83,6 +83,7 @@ public final class EdgeTriggerUseCase {
     private let hideTimer: any Scheduling
     private let isGateOpen: () -> Bool
     private let onGateClosed: () -> Void
+    private let onPanelShown: () -> Void
     private var policy: EdgeTriggerPolicy
     private let logger = Logger(
         subsystem: "io.github.x7c1.SuttoMac", category: "edge-trigger")
@@ -119,6 +120,10 @@ public final class EdgeTriggerUseCase {
     ///   - onGateClosed: called instead of showing when a `.showPanel` effect
     ///     is blocked by a closed gate — the composition root points it at the
     ///     licensing entry point (Settings).
+    ///   - onPanelShown: called right after a `.showPanel` effect actually
+    ///     showed the panel (never when the gate refused it) — the composition
+    ///     root points it at ``LicenseGate/recordTrialUsage()`` so the edge
+    ///     trigger counts a trial day exactly like the shortcut / menu path.
     public init(
         drags: any DragObserving,
         windows: any WindowControlling,
@@ -129,6 +134,7 @@ public final class EdgeTriggerUseCase {
         hideTimer: any Scheduling,
         isGateOpen: @escaping () -> Bool,
         onGateClosed: @escaping () -> Void,
+        onPanelShown: @escaping () -> Void,
         policy: EdgeTriggerPolicy = EdgeTriggerPolicy()
     ) {
         self.drags = drags
@@ -140,6 +146,7 @@ public final class EdgeTriggerUseCase {
         self.hideTimer = hideTimer
         self.isGateOpen = isGateOpen
         self.onGateClosed = onGateClosed
+        self.onPanelShown = onPanelShown
         self.policy = policy
     }
 
@@ -330,6 +337,9 @@ public final class EdgeTriggerUseCase {
             // The panel then dismisses on its own terms (auto-hide once the
             // cursor leaves it, or a click outside) — no suppression needed.
             panel.show(at: point)
+            // Count the trial day only now that the panel is really up, like
+            // the toggle path.
+            onPanelShown()
         case let .movePanel(point):
             panel.move(to: point)
         case .hidePanel:

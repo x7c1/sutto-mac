@@ -4,7 +4,7 @@ import os
 
 /// The operations half of licensing: it owns the ``LicenseState`` aggregate,
 /// answers whether the gated features are unlocked, and drives the three
-/// backend-touching transitions (activate, launch validate, trial day count).
+/// transitions (activate, launch validate, trial day count on panel show).
 ///
 /// This folds the GNOME `LicenseStateHandler` + `LicenseOperations` into one
 /// use case, wrapping the pure ``SuttoDomain/LicenseGatePolicy`` and
@@ -141,16 +141,20 @@ public final class LicenseGate {
         }
     }
 
-    /// Counts today as a trial day of use when in trial mode, closing the gate
-    /// once the 30-day trial is spent.
+    /// Counts today as a trial day of use because a normal panel was just
+    /// shown, turning the status into `trialExpired` once the 30-day trial is
+    /// spent.
     ///
-    /// The port of the GNOME `recordTrialUsage`: it runs only when the status
-    /// is `trial`, counts at most one day per calendar day
-    /// (``SuttoDomain/TrialState/canRecordUsage(today:)``), and flips the
-    /// status to `expired` the moment the trial is used up. The GNOME
-    /// `backend_unreachable` guard is intentionally not ported — the trial is
-    /// fully local (design decision #10).
-    public func recordTrialUsageOnLaunch() {
+    /// The port of the GNOME `recordTrialUsage`. The panel-show seams
+    /// (``PanelToggleUseCase`` and ``EdgeTriggerUseCase``) call it only on the
+    /// branch that actually showed the panel, so a show refused by a closed
+    /// gate is never counted, and nothing is counted at launch. It runs only
+    /// when the status is `trial` and counts at most one day per calendar day
+    /// (``SuttoDomain/TrialState/canRecordUsage(today:)``), whether or not the
+    /// backend is reachable — the trial is fully local (design decision #10).
+    /// This is the only place `trial` becomes `trialExpired`: the panel that
+    /// records day 30 has already been shown, and the next show is refused.
+    public func recordTrialUsage() {
         var state = loadedState()
         guard state.status == .trial else { return }
 
@@ -159,20 +163,21 @@ public final class LicenseGate {
 
         state.trial = state.trial.recordUsage(today: day)
         if state.trial.isExpired {
-            state.updateStatus(.expired)
+            state.updateStatus(.trialExpired)
         }
         persist(state)
     }
 
     /// Clears the activated license from *local* storage, returning the device
-    /// to its trial (or to `expired` if the trial is already spent).
+    /// to its trial (or to `trialExpired` if the trial is already spent).
     ///
     /// This is the local half of "Deactivate": it drops the stored
     /// ``LicenseState/record`` and recomputes the status from the trial —
-    /// `trial` while days remain, `expired` once the 30 days are used up — then
-    /// persists. It never fabricates a worse verdict than the trial supports
-    /// (design decision #8): a user who clears a license mid-trial keeps the
-    /// days they had left.
+    /// `trial` while days remain, `trialExpired` once the 30 days are used up —
+    /// then persists. It never fabricates a worse verdict than the trial
+    /// supports (design decision #8): a user who clears a license mid-trial
+    /// keeps the days they had left, and a spent trial is not reported as an
+    /// authoritatively expired license.
     ///
     /// TODO(sub-PR B1): also release this device's activation on the backend so
     /// the seat is freed toward the device limit. Until the real API is wired
@@ -180,7 +185,7 @@ public final class LicenseGate {
     public func clearLicense() {
         var state = loadedState()
         state.record = nil
-        state.updateStatus(state.trial.isExpired ? .expired : .trial)
+        state.updateStatus(state.trial.isExpired ? .trialExpired : .trial)
         persist(state)
     }
 
