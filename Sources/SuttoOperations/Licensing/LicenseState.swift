@@ -16,10 +16,12 @@ import SuttoDomain
 /// ``status`` is canonical; ``updateStatus(_:)`` keeps the two in step and the
 /// serializer writes ``status`` only, so the mirror can never drift on disk.
 public struct LicenseState: Equatable, Sendable {
-    /// The last authoritative verdict — the sole status axis the gate reads.
-    /// Present even without a ``record`` (a trial that has run out is
-    /// `.expired` with no license), which is why it lives here rather than
-    /// only inside ``record``.
+    /// The current verdict — the sole status axis the gate reads. One of the
+    /// five ``SuttoDomain/LicenseStatus`` values: `.trial` and `.trialExpired`
+    /// are local and carry no ``record``, while `.valid`, `.expired`, and
+    /// `.invalid` come from the backend. It is present even without a
+    /// ``record`` (a spent trial is `.trialExpired` with no license), which is
+    /// why it lives here rather than only inside ``record``.
     public var status: LicenseStatus
 
     /// The activated license, or `nil` before any activation (the trial-only

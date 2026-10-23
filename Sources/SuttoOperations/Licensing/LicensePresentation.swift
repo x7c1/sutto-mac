@@ -30,12 +30,10 @@ public enum LicensePresentation {
                 return "License active"
             }
             return "License active — \(lastVerifiedText(for: record, now: now))"
+        case .trialExpired:
+            return "Trial expired — activate a license to keep using Sutto"
         case .expired:
-            // The same status covers a spent trial and an authoritatively
-            // expired license; the presence of a record tells them apart.
-            return state.record == nil
-                ? "Trial expired — activate a license to keep using Sutto"
-                : "License expired — renew or activate a new license"
+            return "License expired — renew or activate a new license"
         case .invalid:
             return "License invalid — check your key and activate again"
         }

@@ -115,14 +115,17 @@ import Testing
     }
 
     /// Scriptable licensing gate: `isOpen` drives ``EdgeTriggerUseCase``'s
-    /// show guard, `closedCount` records how often `onGateClosed` fired.
+    /// show guard, `closedCount` records how often `onGateClosed` fired, and
+    /// `shownCount` how often `onPanelShown` (the trial-day count) fired.
     private final class GateSpy {
         var isOpen: Bool
         private(set) var closedCount = 0
+        private(set) var shownCount = 0
 
         init(isOpen: Bool) { self.isOpen = isOpen }
 
         func reportClosed() { closedCount += 1 }
+        func reportShown() { shownCount += 1 }
     }
 
     // MARK: - Fixture
@@ -169,7 +172,8 @@ import Testing
             throttle: throttle,
             hideTimer: hide,
             isGateOpen: { gate.isOpen },
-            onGateClosed: { gate.reportClosed() }
+            onGateClosed: { gate.reportClosed() },
+            onPanelShown: { gate.reportShown() }
         )
         useCase.start()
         return Harness(
@@ -326,6 +330,8 @@ import Testing
 
         #expect(h.panel.calls.isEmpty)
         #expect(h.gate.closedCount == 1)
+        // A refused show is not counted as a trial day.
+        #expect(h.gate.shownCount == 0)
     }
 
     @Test func openGateShowsAndDoesNotReport() {
@@ -338,6 +344,8 @@ import Testing
 
         #expect(h.panel.calls == [.show(PixelPoint(x: 5, y: 400))])
         #expect(h.gate.closedCount == 0)
+        // The shown panel is reported once, so a trial day can be counted.
+        #expect(h.gate.shownCount == 1)
     }
 
     @Test func panelFollowsTheCursorWhileTriggeredAndDragging() {

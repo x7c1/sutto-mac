@@ -111,6 +111,65 @@ import Testing
         }
     }
 
+    /// A spent trial round-trips as `trialExpired`, written with the GNOME
+    /// raw value `trial-expired`.
+    @Test func roundTripsATrialExpiredState() throws {
+        try withRepository { repository, directory in
+            let state = LicenseState(
+                status: .trialExpired, record: nil,
+                trial: TrialState(daysUsed: 30, lastUsedDate: "2026-07-16"))
+
+            try repository.save(state)
+
+            #expect(repository.load() == state)
+            let data = try Data(
+                contentsOf: directory.appendingPathComponent("license.sutto.json"))
+            let root = try #require(
+                try JSONSerialization.jsonObject(with: data) as? [String: Any])
+            #expect(root["status"] as? String == "trial-expired")
+        }
+    }
+
+    /// An older version wrote a spent trial as `expired` with no license. With
+    /// no record, no backend ever expired a license here, so it loads as
+    /// `trialExpired`.
+    @Test func loadsLegacyExpiredWithoutARecordAsTrialExpired() throws {
+        try withRepository { repository, directory in
+            try FileManager.default.createDirectory(
+                at: directory, withIntermediateDirectories: true)
+            let json = """
+                {
+                  "activationId" : "",
+                  "licenseKey" : "",
+                  "status" : "expired",
+                  "trialDaysUsed" : 30,
+                  "trialLastUsedDate" : "2026-07-16"
+                }
+                """
+            try Data(json.utf8).write(
+                to: directory.appendingPathComponent("license.sutto.json"))
+
+            let loaded = repository.load()
+            #expect(loaded.status == .trialExpired)
+            #expect(loaded.record == nil)
+            #expect(loaded.trial.daysUsed == 30)
+        }
+    }
+
+    /// A stored `expired` with a license record is an authoritatively expired
+    /// license and stays `expired`.
+    @Test func loadsExpiredWithARecordAsExpired() throws {
+        try withRepository { repository, _ in
+            let state = activatedState(status: .expired)
+
+            try repository.save(state)
+
+            let loaded = repository.load()
+            #expect(loaded.status == .expired)
+            #expect(loaded.record?.status == .expired)
+        }
+    }
+
     /// The written document exposes the licensing keys (aligned with the GNOME
     /// GSettings keys) and omits the record timestamps in the trial-only state.
     @Test func writesTheExpectedFileShape() throws {

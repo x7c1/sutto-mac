@@ -163,13 +163,13 @@ import Testing
         let apiClient = StubLicenseApiClient()
         let gate = makeGate(repository: repository, apiClient: apiClient, today: { "2026-07-16" })
 
-        gate.recordTrialUsageOnLaunch()
+        gate.recordTrialUsage()
         #expect(gate.state().trial.daysUsed == 1)
         #expect(repository.savedStates.count == 1)
 
-        // A second launch on the same day does not count again — and does not
+        // A second show on the same day does not count again — and does not
         // write again.
-        gate.recordTrialUsageOnLaunch()
+        gate.recordTrialUsage()
         #expect(gate.state().trial.daysUsed == 1)
         #expect(repository.savedStates.count == 1)
     }
@@ -180,14 +180,14 @@ import Testing
         let apiClient = StubLicenseApiClient()
         let gate = makeGate(repository: repository, apiClient: apiClient, today: { "2026-07-16" })
 
-        gate.recordTrialUsageOnLaunch()
+        gate.recordTrialUsage()
 
         #expect(gate.state().trial.daysUsed == 2)
     }
 
-    /// Day 30 spends the trial: the status flips to `expired` and the gate
-    /// closes.
-    @Test func trialExpiresAndClosesTheGateAtDayThirty() {
+    /// Day 30 spends the trial: the status flips to `trialExpired` — never the
+    /// backend's `expired` — and the gate closes.
+    @Test func trialBecomesTrialExpiredAndClosesTheGateAtDayThirty() {
         let repository = InMemoryLicenseRepository(
             state: trialState(daysUsed: 29, lastUsedDate: "2026-07-15"))
         let apiClient = StubLicenseApiClient()
@@ -195,21 +195,40 @@ import Testing
 
         // Open on the 30th day of use...
         #expect(gate.isOpen())
-        gate.recordTrialUsageOnLaunch()
+        gate.recordTrialUsage()
 
         #expect(gate.state().trial.daysUsed == 30)
-        #expect(gate.state().status == .expired)
+        #expect(gate.state().status == .trialExpired)
+        #expect(repository.savedStates.last?.status == .trialExpired)
         #expect(!gate.isOpen())
     }
 
-    @Test func trialRecordingSkipsWhenNotInTrial() {
-        let repository = InMemoryLicenseRepository(state: validState())
+    /// Counting is purely local: it does not consult the backend at all.
+    @Test func trialRecordingNeverTouchesTheBackend() {
+        let repository = InMemoryLicenseRepository(
+            state: trialState(daysUsed: 3, lastUsedDate: "2026-07-15"))
         let apiClient = StubLicenseApiClient()
-        let gate = makeGate(repository: repository, apiClient: apiClient)
+        let gate = makeGate(repository: repository, apiClient: apiClient, today: { "2026-07-16" })
 
-        gate.recordTrialUsageOnLaunch()
+        gate.recordTrialUsage()
 
-        #expect(gate.state().status == .valid)
+        #expect(gate.state().trial.daysUsed == 4)
+        #expect(apiClient.validateCount == 0)
+    }
+
+    @Test(arguments: [LicenseStatus.trialExpired, .valid, .expired, .invalid])
+    func trialRecordingSkipsWhenNotInTrial(status: LicenseStatus) {
+        let state = LicenseState(
+            status: status,
+            record: status == .trialExpired ? nil : validState(status: status).record,
+            trial: TrialState(daysUsed: 10, lastUsedDate: "2026-07-15"))
+        let repository = InMemoryLicenseRepository(state: state)
+        let apiClient = StubLicenseApiClient()
+        let gate = makeGate(repository: repository, apiClient: apiClient, today: { "2026-07-16" })
+
+        gate.recordTrialUsage()
+
+        #expect(gate.state() == state)
         #expect(repository.savedStates.isEmpty)
     }
 
@@ -311,9 +330,10 @@ import Testing
         #expect(repository.savedStates.last?.record == nil)
     }
 
-    /// Clearing when the trial is already spent lands on `expired`, not a fresh
-    /// trial — clearing must not hand back a trial the device no longer has.
-    @Test func clearBecomesExpiredWhenTrialIsSpent() {
+    /// Clearing when the trial is already spent lands on `trialExpired`, not a
+    /// fresh trial — clearing must not hand back a trial the device no longer
+    /// has — and not `expired`, which only the backend may produce.
+    @Test func clearBecomesTrialExpiredWhenTrialIsSpent() {
         let repository = InMemoryLicenseRepository(
             state: LicenseState(
                 status: .valid,
@@ -325,10 +345,10 @@ import Testing
 
         gate.clearLicense()
 
-        #expect(gate.state().status == .expired)
+        #expect(gate.state().status == .trialExpired)
         #expect(gate.state().record == nil)
         #expect(!gate.isOpen())
-        #expect(repository.savedStates.last?.status == .expired)
+        #expect(repository.savedStates.last?.status == .trialExpired)
     }
 
     // MARK: - Lazy load

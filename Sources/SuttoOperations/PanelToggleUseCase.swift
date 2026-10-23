@@ -15,6 +15,12 @@
 /// invoked instead (the composition root routes it to the licensing entry
 /// point). Keeping the check here — rather than in the UI's panel — is the
 /// design's rule that Operations decides and the UI merely obeys.
+///
+/// **Trial day counting.** Once the panel has been shown, ``onPanelShown`` is
+/// invoked (the composition root points it at
+/// ``LicenseGate/recordTrialUsage()``), so a trial day is counted only when a
+/// normal panel actually appears — never for a hide, and never for a show the
+/// closed gate refused.
 @MainActor
 public final class PanelToggleUseCase {
     private let isPanelVisible: () -> Bool
@@ -22,6 +28,7 @@ public final class PanelToggleUseCase {
     private let hidePanel: () -> Void
     private let isGateOpen: () -> Bool
     private let onGateClosed: () -> Void
+    private let onPanelShown: () -> Void
 
     /// - Parameters:
     ///   - isPanelVisible: whether the panel is currently on screen.
@@ -33,18 +40,23 @@ public final class PanelToggleUseCase {
     ///   - onGateClosed: called instead of `showPanel` when a show is blocked
     ///     by a closed gate — the composition root points it at the licensing
     ///     entry point (Settings) so the user can activate or purchase.
+    ///   - onPanelShown: called right after `showPanel`, only on the branch
+    ///     that showed the panel — the composition root points it at
+    ///     ``LicenseGate/recordTrialUsage()``.
     public init(
         isPanelVisible: @escaping () -> Bool,
         showPanel: @escaping () -> Void,
         hidePanel: @escaping () -> Void,
         isGateOpen: @escaping () -> Bool,
-        onGateClosed: @escaping () -> Void
+        onGateClosed: @escaping () -> Void,
+        onPanelShown: @escaping () -> Void
     ) {
         self.isPanelVisible = isPanelVisible
         self.showPanel = showPanel
         self.hidePanel = hidePanel
         self.isGateOpen = isGateOpen
         self.onGateClosed = onGateClosed
+        self.onPanelShown = onPanelShown
     }
 
     /// Shows the panel if it is hidden, hides it if it is visible.
@@ -55,6 +67,7 @@ public final class PanelToggleUseCase {
             hidePanel()
         } else if isGateOpen() {
             showPanel()
+            onPanelShown()
         } else {
             onGateClosed()
         }

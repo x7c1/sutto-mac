@@ -65,7 +65,7 @@ import Testing
 
     @Test func expiredTrialAndExpiredLicenseReadDifferently() {
         let expiredTrial = LicenseState(
-            status: .expired, record: nil,
+            status: .trialExpired, record: nil,
             trial: TrialState(daysUsed: 30, lastUsedDate: "2026-07-10"))
         #expect(
             LicensePresentation.statusText(for: expiredTrial, now: now)
@@ -75,6 +75,14 @@ import Testing
             status: .expired, record: record(lastValidated: now), trial: .initial)
         #expect(
             LicensePresentation.statusText(for: expiredLicense, now: now)
+                == "License expired — renew or activate a new license")
+
+        // `expired` always means the backend refused a license, so even an
+        // unusual shape with no record keeps the license wording.
+        let expiredWithoutRecord = LicenseState(
+            status: .expired, record: nil, trial: .initial)
+        #expect(
+            LicensePresentation.statusText(for: expiredWithoutRecord, now: now)
                 == "License expired — renew or activate a new license")
     }
 

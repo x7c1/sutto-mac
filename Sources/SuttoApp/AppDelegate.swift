@@ -77,9 +77,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // client, and this device's identity. The gate reads only the cached
         // verdict — never the network — so an unreachable or vanished backend
         // never locks out a valid device (the fail-open policy). The two
-        // panel-show seams below (`togglePanel`, `edgeTrigger`) consult it, and
-        // the launch pass at the end of this method validates / counts a trial
-        // day once.
+        // panel-show seams below (`togglePanel`, `edgeTrigger`) consult it and
+        // count a trial day whenever they actually show the panel, and the
+        // launch pass at the end of this method validates a valid license once.
         let licenseGate = LicenseGate(
             repository: FileLicenseRepository(
                 directory: FileSpaceCollectionRepository.defaultDirectory()
@@ -184,6 +184,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         layoutPanel = panel
 
+        // Both panel-show seams count a trial day through this. When the count
+        // actually changed the state (at most once a day), an open Settings
+        // window is re-rendered so the License pane's remaining days — or the
+        // switch to "Trial expired" on day 30 — do not lag behind the panel the
+        // user just opened. `settingsWindow` is read at call time, so it may be
+        // assigned below.
+        let recordTrialUsage: () -> Void = { [weak self, weak licenseGate] in
+            guard let licenseGate else { return }
+            let before = licenseGate.state()
+            licenseGate.recordTrialUsage()
+            if licenseGate.state() != before {
+                self?.settingsWindow?.refreshIfVisible()
+            }
+        }
+
         let togglePanel = PanelToggleUseCase(
             isPanelVisible: { [weak panel] in panel?.isVisible ?? false },
             showPanel: { [weak panel] in
@@ -195,7 +210,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Fail-open if the gate is somehow gone: never lock the user out of
             // their own panel because of a wiring fault.
             isGateOpen: { [weak licenseGate] in licenseGate?.isOpen() ?? true },
-            onGateClosed: { [weak self] in self?.openLicensingEntryPoint() }
+            onGateClosed: { [weak self] in self?.openLicensingEntryPoint() },
+            onPanelShown: recordTrialUsage
         )
 
         let settings = SettingsWindowController(
@@ -329,7 +345,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // edge trigger would reveal the panel. Fail-open if the gate is
             // gone, for the same reason as the toggle path.
             isGateOpen: { [weak licenseGate] in licenseGate?.isOpen() ?? true },
-            onGateClosed: { [weak self] in self?.openLicensingEntryPoint() }
+            onGateClosed: { [weak self] in self?.openLicensingEntryPoint() },
+            onPanelShown: recordTrialUsage
         )
         self.edgeTrigger = edgeTrigger
         // Every panel close funnels through LayoutPanel.hide(); route that to
@@ -347,19 +364,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onboarding.present()
         }
 
-        // Launch licensing pass (design decisions #9 / #10), run once here and
-        // never on a timer. Ordered validate → record so a device whose
-        // validate downgraded it does not then also count a trial day:
-        //  - a `valid` device attempts a single validate; a no-answer keeps the
-        //    cached verdict (fail-open), and only an authoritative NO downgrades;
-        //  - a `trial` device counts today as one day of use (at most once per
-        //    calendar day), closing the gate when the 30 days are spent.
-        // Both are no-ops for the other states, so calling them unconditionally
-        // is safe. Off the launch path in a Task since validate is async; the
-        // gate wiring above does not depend on it having finished.
+        // Launch licensing pass (design decision #9), run once here and never
+        // on a timer: a `valid` device attempts a single validate; a no-answer
+        // keeps the cached verdict (fail-open), and only an authoritative NO
+        // downgrades. It is a no-op for the other states, so calling it
+        // unconditionally is safe. No trial day is counted here — that happens
+        // when a panel is actually shown (`onPanelShown` above). Off the launch
+        // path in a Task since validate is async; the gate wiring above does
+        // not depend on it having finished.
         Task { [licenseGate] in
             await licenseGate.validateOnLaunch()
-            licenseGate.recordTrialUsageOnLaunch()
         }
     }
 
