@@ -140,15 +140,15 @@ deprecated.
 
 ### Manual / on-hardware (verified by a human before merge)
 
-- [ ] On a real Mac, turning the toggle on makes Sutto appear under
+- [x] On a real Mac, turning the toggle on makes Sutto appear under
       System Settings › General › Login Items & Extensions, and Sutto is
       running in the menu bar after a logout/login (or reboot) without being
       started by hand.
-- [ ] Turning the item off in System Settings (not in Sutto) and reopening
+- [x] Turning the item off in System Settings (not in Sutto) and reopening
       Sutto's Settings shows the checkbox off — the pane reads the OS state.
-- [ ] Toggling off in Sutto removes the item from System Settings, and after
+- [x] Toggling off in Sutto removes the item from System Settings, and after
       the next login Sutto is not running.
-- [ ] After `make run` rebuilds the unsigned bundle, the login item either
+- [x] After `make run` rebuilds the unsigned bundle, the login item either
       still launches it or does not; whichever was observed is what the README
       states.
 
