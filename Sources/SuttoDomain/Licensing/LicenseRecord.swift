@@ -29,7 +29,8 @@ public struct LicenseRecord: Equatable, Sendable {
     /// to render "last checked N days ago" in the UI via
     /// ``daysSinceLastValidation(now:)``; deliberately **not** an input to the
     /// gate, so an unreachable backend can never age a valid device out
-    /// (unlimited fail-open — see ``LicenseGatePolicy``).
+    /// (fail-open — see ``LicenseGatePolicy``; the offline limit is counted
+    /// from the last time the device was online instead).
     public var lastValidated: Date
 
     /// The last authoritative verdict for this device.

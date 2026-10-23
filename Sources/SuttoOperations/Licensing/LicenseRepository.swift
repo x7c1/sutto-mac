@@ -10,14 +10,14 @@ import SuttoDomain
 /// ``MonitorEnvironmentRepository`` file convention.
 ///
 /// ``load()`` never fails and never fabricates a worse verdict: a missing or
-/// corrupt store degrades to ``LicenseState/freshTrial`` (design decision #8).
+/// corrupt store degrades to ``LicenseState/freshTrial(now:)`` (design decision #8).
 /// A read failure is not an authoritative NO, so — like the fail-open rule for
 /// an unreachable backend — it must never close the gate. This is the storage
 /// analogue of ``SuttoDomain/ValidationOutcome/noResponse``: a rare corruption
 /// recovers by re-activating, it does not brick a paying user.
 @MainActor
 public protocol LicenseRepository {
-    /// The stored aggregate, or ``LicenseState/freshTrial`` on first run or
+    /// The stored aggregate, or ``LicenseState/freshTrial(now:)`` on first run or
     /// when the stored data is unreadable.
     func load() -> LicenseState
 

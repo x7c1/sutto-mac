@@ -14,7 +14,7 @@ final class InMemoryLicenseRepository: LicenseRepository {
     private(set) var loadCount = 0
     private(set) var savedStates: [LicenseState] = []
 
-    init(state: LicenseState = .freshTrial) {
+    init(state: LicenseState = .freshTrial(now: Date(timeIntervalSince1970: 1_700_000_000))) {
         storedState = state
     }
 
@@ -39,6 +39,9 @@ final class InMemoryLicenseRepository: LicenseRepository {
 final class StubLicenseApiClient: LicenseApiClient {
     var validationOutcome: ValidationOutcome = .noResponse
     var activationOutcome: ActivationOutcome = .noResponse
+    /// Runs inside `validate` before it returns, standing in for whatever the
+    /// app does on the main actor while the real request is in flight.
+    var duringValidate: (@MainActor () -> Void)?
     private(set) var validateCount = 0
     private(set) var activateCount = 0
     private(set) var lastActivateKey: String?
@@ -57,6 +60,35 @@ final class StubLicenseApiClient: LicenseApiClient {
         validateCount += 1
         lastValidateKey = key
         lastValidateActivationId = activationId
+        duringValidate?()
         return validationOutcome
+    }
+}
+
+/// Scriptable ``ConnectivityMonitoring`` for gate tests: `isOnline` is set
+/// directly, and ``report(isOnline:)`` plays a connectivity change the way the
+/// `NWPathMonitor` adapter delivers one.
+@MainActor
+final class StubConnectivity: ConnectivityMonitoring {
+    private(set) var isOnline: Bool
+    private var onChange: (@MainActor (Bool) -> Void)?
+
+    init(isOnline: Bool) {
+        self.isOnline = isOnline
+    }
+
+    func startWatching(_ onChange: @escaping @MainActor (_ isOnline: Bool) -> Void) {
+        self.onChange = onChange
+    }
+
+    /// Changes the connectivity without a callback, as if nobody watched.
+    func set(isOnline: Bool) {
+        self.isOnline = isOnline
+    }
+
+    /// Changes the connectivity and calls the watcher, if any.
+    func report(isOnline: Bool) {
+        self.isOnline = isOnline
+        onChange?(isOnline)
     }
 }

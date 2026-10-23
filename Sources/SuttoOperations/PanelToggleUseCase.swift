@@ -35,8 +35,9 @@ public final class PanelToggleUseCase {
     ///   - showPanel: shows the panel (only called when the gate is open).
     ///   - hidePanel: hides the panel (never gated).
     ///   - isGateOpen: whether the licensing gate permits showing the panel.
-    ///     Reads the cached verdict only (``LicenseGate/isOpen()``); it must
-    ///     not touch the network.
+    ///     Called once per show attempt; the composition root points it at
+    ///     ``LicenseGate/admitsPanelShow()``, which records the last-online
+    ///     time and checks the gate without asking the license server.
     ///   - onGateClosed: called instead of `showPanel` when a show is blocked
     ///     by a closed gate — the composition root points it at the licensing
     ///     entry point (Settings) so the user can activate or purchase.

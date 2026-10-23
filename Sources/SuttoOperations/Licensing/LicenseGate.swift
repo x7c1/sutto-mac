@@ -3,30 +3,36 @@ import SuttoDomain
 import os
 
 /// The operations half of licensing: it owns the ``LicenseState`` aggregate,
-/// answers whether the gated features are unlocked, and drives the three
-/// transitions (activate, launch validate, trial day count on panel show).
+/// answers whether the gated features are unlocked, and drives the
+/// transitions (activate, launch validate, trial day count on panel show, and
+/// recording the last time the device was online).
 ///
 /// This folds the GNOME `LicenseStateHandler` + `LicenseOperations` into one
 /// use case, wrapping the pure ``SuttoDomain/LicenseGatePolicy`` and
 /// ``SuttoDomain/ValidationOutcome`` mapping with the things the domain
 /// deliberately does not own: persistence (``LicenseRepository``), the network
-/// (``LicenseApiClient``), and clocks (`now` / `today`) — injected the way
-/// ``LayoutHistoryUseCase`` injects its `now`.
+/// (``LicenseApiClient``), connectivity (``ConnectivityMonitoring``), and
+/// clocks (`now` / `today`) — injected the way ``LayoutHistoryUseCase``
+/// injects its `now`.
 ///
 /// The state is *lazily loaded* on first use and then held in memory as the
 /// source of truth for the run, mirroring ``LayoutHistoryUseCase``: every
 /// transition folds into the in-memory aggregate and writes it straight back.
 ///
-/// The fail-open policy lives entirely in the pieces this composes, so it
-/// needs no live network signal here: ``isOpen()`` reads only the cached
-/// verdict and the trial, and ``validateOnLaunch()`` downgrades only on an
-/// authoritative NO. A backend that is unreachable — or has vanished
-/// (404 / 410) — never closes the gate.
+/// Two axes are kept apart. **Reachability** (did the license server answer)
+/// only ever comes from a validate, and ``validateOnLaunch()`` downgrades only
+/// on an authoritative NO, so a backend that is unreachable — or has vanished
+/// (404 / 410) — never closes the gate. **Connectivity** (is the device on a
+/// network) comes from ``ConnectivityMonitoring``: a `valid` device may stay
+/// offline for at most ``SuttoDomain/LicenseGatePolicy/offlineGracePeriodDays``
+/// counted from the last time it was online, which this records at launch, on
+/// every panel-show attempt, and on every connectivity change.
 @MainActor
 public final class LicenseGate {
     private let repository: any LicenseRepository
     private let apiClient: any LicenseApiClient
     private let device: DeviceIdentity
+    private let connectivity: any ConnectivityMonitoring
     private let now: () -> Date
     private let today: () -> String
     private let logger = Logger(subsystem: "io.github.x7c1.SuttoMac", category: "licensing")
@@ -34,6 +40,10 @@ public final class LicenseGate {
     /// The loaded aggregate, or `nil` until the first access forces a lazy
     /// load. Held after that so every transition mutates one in-memory value.
     private var cachedState: LicenseState?
+
+    /// The connectivity last seen by ``watchConnectivity(onChange:)``, so a
+    /// change from online to offline can still record the last-online time.
+    private var wasOnline = false
 
     /// - Parameters:
     ///   - repository: persistence for the aggregate;
@@ -43,31 +53,86 @@ public final class LicenseGate {
     ///   - apiClient: the backend; returns already-classified outcomes so this
     ///     use case never sees an HTTP status code.
     ///   - device: how this device identifies itself when activating.
-    ///   - now: injected so tests control the `lastValidated` timestamp,
-    ///     matching ``LayoutHistoryUseCase``.
+    ///   - connectivity: whether the device is on a network, and when that
+    ///     changes.
+    ///   - now: injected so tests control the `lastValidated` and
+    ///     `lastOnlineAt` timestamps and the offline limit, matching
+    ///     ``LayoutHistoryUseCase``.
     ///   - today: injected so tests control the trial's day-of-use string,
     ///     matching the GNOME `DateProvider.today()`.
     public init(
         repository: any LicenseRepository,
         apiClient: any LicenseApiClient,
         device: DeviceIdentity,
+        connectivity: any ConnectivityMonitoring,
         now: @escaping () -> Date = Date.init,
         today: @escaping () -> String = licenseGateDefaultToday
     ) {
         self.repository = repository
         self.apiClient = apiClient
         self.device = device
+        self.connectivity = connectivity
         self.now = now
         self.today = today
     }
 
     /// Whether the gated features (panel display) are unlocked right now.
     ///
-    /// Reads only the cached status and the trial through the pure
-    /// ``SuttoDomain/LicenseGatePolicy`` — never the network — which is what
-    /// makes "the API can disappear and a valid device keeps working" hold.
+    /// Reads the cached status, the trial, the current connectivity, and the
+    /// last-online time through the pure ``SuttoDomain/LicenseGatePolicy``. It
+    /// never asks the license server, which is what makes "the API can
+    /// disappear and a valid device keeps working" hold.
     public func isOpen() -> Bool {
-        loadedState().isGateOpen
+        loadedState().isGateOpen(isOnline: connectivity.isOnline, now: now())
+    }
+
+    /// The gate check for a panel-show attempt: records the last-online time
+    /// first (if the device is online), then answers ``isOpen()``. Recording
+    /// first lets a device that has just reconnected after the offline limit
+    /// open at once. The panel-show seams (``PanelToggleUseCase`` and
+    /// ``EdgeTriggerUseCase``) take this as their `isGateOpen`.
+    public func admitsPanelShow() -> Bool {
+        recordOnlineIfConnected()
+        return isOpen()
+    }
+
+    /// The one-line status for the License settings pane and the status menu,
+    /// via ``LicensePresentation/statusText(for:isOnline:now:)``.
+    public func statusText() -> String {
+        LicensePresentation.statusText(
+            for: loadedState(), isOnline: connectivity.isOnline, now: now())
+    }
+
+    /// Records now as the last time the device was online, if it is online.
+    ///
+    /// The port of the GNOME `recordOnlineIfConnected`. The offline limit is
+    /// counted from this time whether or not the license server answers.
+    /// - Returns: whether the device is online.
+    @discardableResult
+    private func recordOnlineIfConnected() -> Bool {
+        guard connectivity.isOnline else { return false }
+        recordOnline()
+        return true
+    }
+
+    /// Starts recording the last-online time on every connectivity change —
+    /// when the device comes online, and when it goes offline (it was online
+    /// until it dropped) — then calls `onChange`.
+    ///
+    /// The port of the GNOME `watchNetworkState`. Reconnecting can end an
+    /// exceeded offline limit, so the composition root uses `onChange` to
+    /// refresh anything showing the licensing state; the gate itself is
+    /// re-evaluated on the next panel show without a relaunch.
+    public func watchConnectivity(onChange: @escaping @MainActor () -> Void) {
+        wasOnline = connectivity.isOnline
+        connectivity.startWatching { [weak self] online in
+            guard let self else { return }
+            if online || self.wasOnline {
+                self.recordOnline()
+            }
+            self.wasOnline = online
+            onChange()
+        }
     }
 
     /// The current licensing aggregate (loading it on first use). Read-only;
@@ -109,21 +174,33 @@ public final class LicenseGate {
         return outcome
     }
 
-    /// Validates a `valid` license once at launch, downgrading only on an
-    /// authoritative NO.
+    /// Records the last-online time and validates a `valid` license once at
+    /// launch, downgrading only on an authoritative NO.
     ///
-    /// The port of the GNOME `initialize()` + `handleValidationError`: it runs
-    /// only when the cached status is `valid` and a record exists, and it maps
+    /// The port of the GNOME `initialize()` + `handleValidationError`. The
+    /// last-online time is recorded first, if the device is online. The
+    /// validate runs only when the device is online — offline is not "no
+    /// answer", it is handled by the offline limit — and only when the cached
+    /// status is `valid` and a record exists. It maps
     /// the outcome through ``SuttoDomain/ValidationOutcome/resolvedStatus(from:)``.
     /// A `.noResponse` (offline / timeout / 5xx / 404 / 410) leaves the status
     /// untouched — the heart of fail-open — so nothing is written in that case.
     /// There is no periodic re-validation (design decision #9).
     public func validateOnLaunch() async {
+        guard recordOnlineIfConnected() else {
+            logger.info("device is offline at launch; skipping the launch validate")
+            return
+        }
         var state = loadedState()
         guard state.status == .valid, let record = state.record else { return }
 
         let outcome = await apiClient.validate(
             key: record.licenseKey, activationId: record.activationId)
+        // Re-read after the await: a panel show or connectivity change may
+        // have updated the state meanwhile. If the license itself changed
+        // (cleared or replaced), this answer no longer applies to it.
+        state = loadedState()
+        guard state.record?.activationId == record.activationId else { return }
 
         switch outcome {
         case .valid(let validUntil):
@@ -186,6 +263,13 @@ public final class LicenseGate {
         var state = loadedState()
         state.record = nil
         state.updateStatus(state.trial.isExpired ? .trialExpired : .trial)
+        persist(state)
+    }
+
+    /// Stores now as the last-online time.
+    private func recordOnline() {
+        var state = loadedState()
+        state.lastOnlineAt = now()
         persist(state)
     }
 

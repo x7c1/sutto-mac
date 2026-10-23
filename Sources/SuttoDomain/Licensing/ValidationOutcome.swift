@@ -17,7 +17,7 @@ public enum ValidationOutcome: Equatable, Sendable {
     case rejected(AuthoritativeRejection)
 
     /// The backend did not authoritatively answer: offline, timeout, 5xx, DNS
-    /// failure, or a retired-API 404 / 410. Under unlimited fail-open this is
+    /// failure, or a retired-API 404 / 410. Under fail-open this is
     /// **never** a downgrade — the cached status is kept as-is.
     case noResponse
 

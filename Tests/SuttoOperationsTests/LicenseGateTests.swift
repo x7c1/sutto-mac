@@ -20,11 +20,13 @@ import Testing
     private func makeGate(
         repository: InMemoryLicenseRepository,
         apiClient: StubLicenseApiClient,
+        connectivity: StubConnectivity = StubConnectivity(isOnline: true),
         now: @escaping () -> Date = { Date(timeIntervalSince1970: 1_700_000_000) },
         today: @escaping () -> String = { "2026-07-16" }
     ) -> LicenseGate {
         LicenseGate(
-            repository: repository, apiClient: apiClient, device: device, now: now, today: today)
+            repository: repository, apiClient: apiClient, device: device,
+            connectivity: connectivity, now: now, today: today)
     }
 
     private func validState(status: LicenseStatus = .valid) -> LicenseState {
@@ -37,20 +39,22 @@ import Testing
                 lastValidated: t0,
                 status: status
             ),
-            trial: .initial
+            trial: .initial,
+            lastOnlineAt: t0
         )
     }
 
     private func trialState(daysUsed: Int, lastUsedDate: String) -> LicenseState {
         LicenseState(
             status: .trial, record: nil,
-            trial: TrialState(daysUsed: daysUsed, lastUsedDate: lastUsedDate))
+            trial: TrialState(daysUsed: daysUsed, lastUsedDate: lastUsedDate), lastOnlineAt: t0)
     }
 
     // MARK: - Fail-open: no authoritative answer never downgrades
 
     /// The most important case: a valid device whose launch validate gets no
-    /// authoritative answer stays open, keeps `valid`, and writes nothing.
+    /// authoritative answer stays open, keeps `valid`, and writes nothing but
+    /// the last-online time.
     @Test func validDeviceStaysOpenWhenValidateHasNoResponse() async {
         let repository = InMemoryLicenseRepository(state: validState())
         let apiClient = StubLicenseApiClient()
@@ -61,8 +65,11 @@ import Testing
 
         #expect(gate.isOpen())
         #expect(gate.state().status == .valid)
-        // Fail-open leaves the cached status alone, so nothing is persisted.
-        #expect(repository.savedStates.isEmpty)
+        // Fail-open leaves the cached status and record alone; the only write
+        // is the last-online time recorded before the validate.
+        #expect(repository.savedStates.count == 1)
+        #expect(repository.savedStates.first?.status == .valid)
+        #expect(repository.savedStates.first?.record == validState().record)
     }
 
     @Test func launchValidatePassesTheStoredKeyAndActivation() async {
@@ -147,7 +154,7 @@ import Testing
         // status valid but no record (an unusual stored shape) — nothing to
         // validate, so the client is never called.
         let repository = InMemoryLicenseRepository(
-            state: LicenseState(status: .valid, record: nil, trial: .initial))
+            state: LicenseState(status: .valid, record: nil, trial: .initial, lastOnlineAt: t0))
         let apiClient = StubLicenseApiClient()
         let gate = makeGate(repository: repository, apiClient: apiClient)
 
@@ -221,7 +228,7 @@ import Testing
         let state = LicenseState(
             status: status,
             record: status == .trialExpired ? nil : validState(status: status).record,
-            trial: TrialState(daysUsed: 10, lastUsedDate: "2026-07-15"))
+            trial: TrialState(daysUsed: 10, lastUsedDate: "2026-07-15"), lastOnlineAt: t0)
         let repository = InMemoryLicenseRepository(state: state)
         let apiClient = StubLicenseApiClient()
         let gate = makeGate(repository: repository, apiClient: apiClient, today: { "2026-07-16" })
@@ -235,7 +242,7 @@ import Testing
     // MARK: - Activation
 
     @Test func activationStoresTheValidRecord() async {
-        let repository = InMemoryLicenseRepository(state: .freshTrial)
+        let repository = InMemoryLicenseRepository(state: .freshTrial(now: t0))
         let apiClient = StubLicenseApiClient()
         let activated = LicenseRecord(
             licenseKey: "NEW-KEY", activationId: "NEW-ACT",
@@ -293,7 +300,7 @@ import Testing
     /// A no-answer activation is retryable: it changes nothing and writes
     /// nothing, leaving the trial intact.
     @Test func activationWithNoResponseLeavesStateUnchanged() async {
-        let repository = InMemoryLicenseRepository(state: .freshTrial)
+        let repository = InMemoryLicenseRepository(state: .freshTrial(now: t0))
         let apiClient = StubLicenseApiClient()
         apiClient.activationOutcome = .noResponse
         let gate = makeGate(repository: repository, apiClient: apiClient)
@@ -317,7 +324,7 @@ import Testing
                 record: LicenseRecord(
                     licenseKey: "KEY-123", activationId: "ACT-456",
                     validUntil: t0, lastValidated: t0, status: .valid),
-                trial: TrialState(daysUsed: 5, lastUsedDate: "2026-07-10")))
+                trial: TrialState(daysUsed: 5, lastUsedDate: "2026-07-10"), lastOnlineAt: t0))
         let gate = makeGate(repository: repository, apiClient: StubLicenseApiClient())
 
         gate.clearLicense()
@@ -340,7 +347,7 @@ import Testing
                 record: LicenseRecord(
                     licenseKey: "KEY-123", activationId: "ACT-456",
                     validUntil: t0, lastValidated: t0, status: .valid),
-                trial: TrialState(daysUsed: 30, lastUsedDate: "2026-07-10")))
+                trial: TrialState(daysUsed: 30, lastUsedDate: "2026-07-10"), lastOnlineAt: t0))
         let gate = makeGate(repository: repository, apiClient: StubLicenseApiClient())
 
         gate.clearLicense()
@@ -369,5 +376,146 @@ import Testing
         _ = gate.isOpen()
 
         #expect(repository.loadCount == 1)
+    }
+
+    // MARK: - Connectivity: the last-online time and the launch validate
+
+    /// Online at launch: the last-online time is recorded before the validate,
+    /// and the validate is attempted.
+    @Test func launchOnlineRecordsLastOnlineAndValidates() async {
+        let repository = InMemoryLicenseRepository(state: validState())
+        let apiClient = StubLicenseApiClient()
+        let gate = makeGate(
+            repository: repository, apiClient: apiClient,
+            connectivity: StubConnectivity(isOnline: true), now: { self.t1 })
+
+        await gate.validateOnLaunch()
+
+        #expect(apiClient.validateCount == 1)
+        #expect(gate.state().lastOnlineAt == t1)
+        #expect(repository.storedState.lastOnlineAt == t1)
+    }
+
+    /// Offline at launch: no validate is attempted (offline is not "no
+    /// answer"), and neither the status nor the last-online time changes.
+    @Test func launchOfflineSkipsTheValidateAndLeavesTheStateUnchanged() async {
+        let state = validState()
+        let repository = InMemoryLicenseRepository(state: state)
+        let apiClient = StubLicenseApiClient()
+        apiClient.validationOutcome = .rejected(.expired)
+        let gate = makeGate(
+            repository: repository, apiClient: apiClient,
+            connectivity: StubConnectivity(isOnline: false), now: { self.t1 })
+
+        await gate.validateOnLaunch()
+
+        #expect(apiClient.validateCount == 0)
+        #expect(gate.state() == state)
+        #expect(gate.state().lastOnlineAt == t0)
+        #expect(repository.savedStates.isEmpty)
+    }
+
+    /// Online at launch, a trial records the last-online time too; there is
+    /// nothing to validate.
+    @Test func launchOnlineRecordsLastOnlineForATrial() async {
+        let repository = InMemoryLicenseRepository(
+            state: trialState(daysUsed: 3, lastUsedDate: "2026-07-15"))
+        let apiClient = StubLicenseApiClient()
+        let gate = makeGate(repository: repository, apiClient: apiClient, now: { self.t1 })
+
+        await gate.validateOnLaunch()
+
+        #expect(apiClient.validateCount == 0)
+        #expect(gate.state().lastOnlineAt == t1)
+    }
+
+    /// A panel show during the launch validate records a newer last-online
+    /// time; the validate's answer is applied on top of it, never over it with
+    /// the state read before the request.
+    @Test func launchValidateKeepsALastOnlineRecordedWhileItWaited() async {
+        let repository = InMemoryLicenseRepository(state: validState())
+        let apiClient = StubLicenseApiClient()
+        apiClient.validationOutcome = .valid(validUntil: t1)
+        var now = t1
+        let gate = makeGate(repository: repository, apiClient: apiClient, now: { now })
+        let later = t1.addingTimeInterval(60)
+        apiClient.duringValidate = {
+            now = later
+            _ = gate.admitsPanelShow()
+        }
+
+        await gate.validateOnLaunch()
+
+        #expect(gate.state().lastOnlineAt == later)
+        #expect(gate.state().record?.lastValidated == later)
+        #expect(repository.storedState.lastOnlineAt == later)
+    }
+
+    /// A license cleared while the launch validate waited is not downgraded by
+    /// that validate's answer: the answer was about a license no longer stored.
+    @Test func launchValidateIgnoresItsAnswerWhenTheLicenseWasClearedMeanwhile() async {
+        let repository = InMemoryLicenseRepository(state: validState())
+        let apiClient = StubLicenseApiClient()
+        apiClient.validationOutcome = .rejected(.expired)
+        let gate = makeGate(repository: repository, apiClient: apiClient, now: { self.t1 })
+        apiClient.duringValidate = { gate.clearLicense() }
+
+        await gate.validateOnLaunch()
+
+        #expect(gate.state().status == .trial)
+        #expect(gate.state().record == nil)
+        #expect(repository.storedState.status == .trial)
+    }
+
+    /// Each panel-show attempt records the last-online time while online, and
+    /// leaves it alone while offline.
+    @Test func panelShowAttemptRecordsLastOnlineOnlyWhileOnline() {
+        let connectivity = StubConnectivity(isOnline: false)
+        var now = t1
+        let repository = InMemoryLicenseRepository(state: validState())
+        let gate = makeGate(
+            repository: repository, apiClient: StubLicenseApiClient(),
+            connectivity: connectivity, now: { now })
+
+        #expect(gate.admitsPanelShow())
+        #expect(gate.state().lastOnlineAt == t0)
+        #expect(repository.savedStates.isEmpty)
+
+        connectivity.set(isOnline: true)
+        now = t1.addingTimeInterval(60)
+        #expect(gate.admitsPanelShow())
+        #expect(gate.state().lastOnlineAt == now)
+        #expect(repository.storedState.lastOnlineAt == now)
+    }
+
+    /// Every connectivity change into or out of online records the last-online
+    /// time — the device was online until it dropped — and calls back.
+    @Test func connectivityChangesRecordLastOnlineIntoAndOutOfOnline() {
+        let connectivity = StubConnectivity(isOnline: false)
+        var now = t1
+        let repository = InMemoryLicenseRepository(state: validState())
+        let gate = makeGate(
+            repository: repository, apiClient: StubLicenseApiClient(),
+            connectivity: connectivity, now: { now })
+        var changes = 0
+        gate.watchConnectivity { changes += 1 }
+
+        // Offline → online.
+        connectivity.report(isOnline: true)
+        #expect(gate.state().lastOnlineAt == t1)
+
+        // Online → offline: the device was online until now.
+        now = t1.addingTimeInterval(3600)
+        connectivity.report(isOnline: false)
+        #expect(gate.state().lastOnlineAt == now)
+        #expect(repository.storedState.lastOnlineAt == now)
+
+        // Offline → offline: nothing was online, so nothing is recorded.
+        let lastRecorded = now
+        now = t1.addingTimeInterval(7200)
+        connectivity.report(isOnline: false)
+        #expect(gate.state().lastOnlineAt == lastRecorded)
+
+        #expect(changes == 3)
     }
 }
