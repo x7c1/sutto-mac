@@ -19,6 +19,7 @@ import SuttoOperations
 /// one.
 @MainActor
 public final class SettingsWindowController {
+    private let generalPane: GeneralSettingsPane
     private let layoutsPane: LayoutsSettingsPane
     private let shortcutsPane: ShortcutsSettingsPane
     private let licensePane: LicenseSettingsPane
@@ -39,6 +40,7 @@ public final class SettingsWindowController {
     private let windowDelegate = SettingsWindowDelegate()
 
     public init(
+        launchAtLogin: LaunchAtLoginUseCase,
         collections: CollectionSettingsUseCase,
         layoutImport: LayoutImportController,
         shortcut: PanelShortcutUseCase,
@@ -46,6 +48,7 @@ public final class SettingsWindowController {
         position: PanelPositionUseCase,
         session: PanelTargetSession
     ) {
+        generalPane = GeneralSettingsPane(launchAtLogin: launchAtLogin)
         layoutsPane = LayoutsSettingsPane(
             collections: collections,
             layoutImport: layoutImport
@@ -54,6 +57,9 @@ public final class SettingsWindowController {
         licensePane = LicenseSettingsPane(license: license)
         self.position = position
         self.session = session
+        generalPane.onContentSizeChanged = { [weak self] in
+            self?.sizeWindowToFitSelectedTab(animated: false)
+        }
         layoutsPane.onContentSizeChanged = { [weak self] in
             self?.sizeWindowToFitSelectedTab(animated: false)
         }
@@ -159,6 +165,7 @@ public final class SettingsWindowController {
     }
 
     private func refresh() {
+        generalPane.refresh()
         layoutsPane.refresh()
         shortcutsPane.refresh()
         licensePane.refresh()
@@ -248,10 +255,11 @@ public final class SettingsWindowController {
         return window
     }
 
-    /// The pane for a tab. New tabs (a future License tab, say) add their
-    /// case to ``SettingsTab`` and their pane here.
+    /// The pane for a tab. New tabs add their case to ``SettingsTab`` and
+    /// their pane here, as General did.
     private func makePane(for tab: SettingsTab) -> NSViewController {
         switch tab {
+        case .general: return generalPane
         case .layouts: return layoutsPane
         case .shortcuts: return shortcutsPane
         case .license: return licensePane
