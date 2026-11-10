@@ -36,7 +36,7 @@ jobs:
       # There are no external dependencies today, so this mainly speeds up
       # incremental compilation of our own targets between runs.
       - name: Cache SwiftPM build directory
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .build
           key: swiftpm-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
